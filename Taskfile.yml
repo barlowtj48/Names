@@ -14,8 +14,8 @@ tasks:
     cmds:
       - >
         docker build -f ./backend/Dockerfile
-        -t registry.thomasjbarlow.com/names-backend:{{.CLI_ARGS}} .
-      - docker push registry.thomasjbarlow.com/names-backend:{{.CLI_ARGS}}
+        -t ${DOCKER_REGISTRY}/names-backend:{{.CLI_ARGS}} .
+      - docker push ${DOCKER_REGISTRY}/names-backend:{{.CLI_ARGS}}
 
   build:prod:backend:
     desc: Build backend image, push to registry "latest"
@@ -24,8 +24,8 @@ tasks:
     cmds:
       - >
         docker build -f ./backend/Dockerfile
-        -t registry.thomasjbarlow.com/names-backend:latest .
-      - docker push registry.thomasjbarlow.com/names-backend:latest
+        -t ${DOCKER_REGISTRY}/names-backend:latest .
+      - docker push ${DOCKER_REGISTRY}/names-backend:latest
 
   deploy:prod:tag:
     desc: Deploy the stack to the swarm

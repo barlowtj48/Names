@@ -2,21 +2,33 @@ name: Build Image
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, labeled]
+    types: [opened, synchronize, reopened]
     branches:
       - main
   workflow_dispatch:
 
+# Lock down the default GITHUB_TOKEN to read-only.
+permissions:
+  contents: read
+
 concurrency:
-  group: pr-build-${{ github.event.number }}
+  group: pr-build-${{ github.event.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
   build_backend_image:
     name: Build and Push Backend Image
+    # Only run on PRs from branches in THIS repo (not forks) or on manual
+    # dispatch by a maintainer. Forked-PR code must never execute on the
+    # self-hosted runner or see registry credentials.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' &&
+       github.event.pull_request.head.repo.full_name == github.repository)
     runs-on:
       - self-hosted
       - docker
+    environment: build
     env:
       PR_NUMBER: ${{ github.event.number }}
     steps:
@@ -24,23 +36,35 @@ jobs:
         uses: AutoModality/action-clean@v1
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - name: Setup Task
         uses: arduino/setup-task@v2
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
       - name: Setup Buildx
         uses: docker/setup-buildx-action@v3
       - name: Login to Docker Registry
         uses: docker/login-action@v3
         with:
-          registry: registry.thomasjbarlow.com
+          registry: ${{ vars.DOCKER_REGISTRY }}
           username: ${{ secrets.DOCKER_REGISTRY_USERNAME }}
           password: ${{ secrets.DOCKER_REGISTRY_PASSWORD }}
       - name: Create Build-time Config
+        env:
+          DOMAIN: ${{ vars.DOMAIN }}
+          BACKEND_PORT: ${{ vars.BACKEND_PORT }}
+          DATABASE_PORT: ${{ vars.DATABASE_PORT }}
+          DOCKER_REGISTRY: ${{ vars.DOCKER_REGISTRY }}
         run: |
           mkdir -p ./secrets
-          cat > ./secrets/names.env << EOF
-          DOMAIN=${{ vars.DOMAIN || 'names.thomasjbarlow.com' }}
-          BACKEND_PORT=${{ vars.BACKEND_PORT || '8104' }}
-          DATABASE_PORT=${{ vars.DATABASE_PORT || '5432' }}
-          EOF
+          {
+            printf 'DOMAIN=%s\n'          "${DOMAIN:-localhost}"
+            printf 'BACKEND_PORT=%s\n'    "${BACKEND_PORT:-8104}"
+            printf 'DATABASE_PORT=%s\n'   "${DATABASE_PORT:-5432}"
+            printf 'DOCKER_REGISTRY=%s\n' "${DOCKER_REGISTRY}"
+          } > ./secrets/names.env
       - name: Build and Push Backend Image
-        run: task build:prod:backend:tag -- ${{ github.event.number }}
+        env:
+          TAG: ${{ github.event.number || github.run_id }}
+        run: task build:prod:backend:tag -- "$TAG"

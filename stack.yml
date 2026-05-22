@@ -18,7 +18,7 @@ services:
     deploy:
       placement:
         constraints:
-          - node.hostname == mediapc
+          - node.hostname == ${DEPLOY_NODE}
       restart_policy:
         condition: any
         delay: 10s
@@ -43,7 +43,7 @@ services:
       - database_name
 
   names-backend:
-    image: registry.thomasjbarlow.com/names-backend:${NAMES_VERSION:-latest}
+    image: ${DOCKER_REGISTRY}/names-backend:${NAMES_VERSION:-latest}
     environment:
       - ENV=production
       - DOMAIN=${DOMAIN}
@@ -58,7 +58,7 @@ services:
     deploy:
       placement:
         constraints:
-          - node.hostname == mediapc
+          - node.hostname == ${DEPLOY_NODE}
       mode: replicated
       replicas: 1
       restart_policy:

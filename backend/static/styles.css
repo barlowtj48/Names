@@ -32,6 +32,13 @@ footer { color: var(--muted); font-size: 0.9rem; }
 footer a { color: var(--accent); }
 .muted { color: var(--muted); }
 .error { color: var(--error); margin-left: 0.5rem; }
+.guidelines {
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 8px; padding: 0.75rem 1rem; margin-bottom: 0.75rem;
+}
+.guidelines h2 { margin: 0 0 0.4rem; font-size: 1rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+.guidelines ul { margin: 0; padding-left: 1.2rem; }
+.guidelines li { margin: 0.15rem 0; }
 .submit form, .controls form {
   display: flex; gap: 0.5rem; align-items: center;
   background: var(--card); border: 1px solid var(--border);
