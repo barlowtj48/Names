@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -9,11 +11,67 @@ import (
 	"github.com/barlowtj48/names/shared/database"
 	"github.com/barlowtj48/names/shared/models"
 	"github.com/gin-gonic/gin"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/TwiN/go-away"
 )
 
 const maxNameLength = 80
 const minNameLength = 1
+
+// Spam patterns: URLs, emails, phone numbers, and the @-handles people use
+// as link substitutes. Run case-insensitively against the trimmed text.
+var (
+	spamURLRe    = regexp.MustCompile(`(?i)\b(?:https?://|www\.)\S+`)
+	spamDomainRe = regexp.MustCompile(`(?i)\b[a-z0-9-]+\.(?:com|net|org|io|co|app|dev|gg|xyz|info|biz|us|uk|ca|me|tv|shop|store|site|online|link|click|live|stream)\b`)
+	spamEmailRe  = regexp.MustCompile(`(?i)[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}`)
+	spamHandleRe = regexp.MustCompile(`(?:^|\s)@[A-Za-z0-9_]{2,}`)
+	// Phone: 7+ digits total, allowing common separators ( ) - . space, optional +.
+	spamPhoneRe = regexp.MustCompile(`\+?\d[\d\s().-]{6,}\d`)
+)
+
+// containsSpam returns a reason if the text looks like a URL, email,
+// phone number, or social handle.
+func containsSpam(text string) string {
+	switch {
+	case spamURLRe.MatchString(text):
+		return "links aren't allowed"
+	case spamEmailRe.MatchString(text):
+		return "email addresses aren't allowed"
+	case spamDomainRe.MatchString(text):
+		return "domain names aren't allowed"
+	case spamHandleRe.MatchString(text):
+		return "social handles aren't allowed"
+	case spamPhoneRe.MatchString(stripNonPhone(text)) && countDigits(text) >= 7:
+		return "phone numbers aren't allowed"
+	}
+	return ""
+}
+
+func countDigits(s string) int {
+	n := 0
+	for _, r := range s {
+		if r >= '0' && r <= '9' {
+			n++
+		}
+	}
+	return n
+}
+
+// stripNonPhone keeps only characters that could form a phone number
+// so digit runs separated by words don't accidentally match.
+func stripNonPhone(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		switch {
+		case r >= '0' && r <= '9',
+			r == '+', r == '-', r == ' ', r == '.', r == '(', r == ')':
+			b.WriteRune(r)
+		default:
+			b.WriteRune(' ')
+		}
+	}
+	return b.String()
+}
 
 // NameRow is the projected row returned to clients/templates.
 type NameRow struct {
@@ -65,6 +123,20 @@ func SubmitName(c *gin.Context) {
 		respondError(c, http.StatusBadRequest, "name rejected by profanity filter")
 		return
 	}
+	if reason := containsSpam(text); reason != "" {
+		respondError(c, http.StatusBadRequest, reason)
+		return
+	}
+
+	// Pre-check for an existing (case-insensitive) name so we return a friendly
+	// message; the unique index on lower(text) is the authoritative guard.
+	var existing models.Name
+	if err := database.DB.
+		Where("lower(text) = lower(?)", text).
+		First(&existing).Error; err == nil {
+		respondError(c, http.StatusConflict, "that name has already been submitted")
+		return
+	}
 
 	voterHash := middlewares.VoterHash(c)
 	name := models.Name{
@@ -73,8 +145,12 @@ func SubmitName(c *gin.Context) {
 		SubmitterHash: voterHash,
 	}
 	if err := database.DB.Create(&name).Error; err != nil {
-		// Likely unique-violation on lower(text)
-		respondError(c, http.StatusConflict, "name already exists")
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			respondError(c, http.StatusConflict, "that name has already been submitted")
+			return
+		}
+		respondError(c, http.StatusInternalServerError, "could not save name")
 		return
 	}
 

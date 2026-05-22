@@ -2,45 +2,71 @@ name: Build Image
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, labeled]
+    types: [opened, synchronize, reopened]
     branches:
       - main
   workflow_dispatch:
 
+# Lock down the default GITHUB_TOKEN to read-only.
+permissions:
+  contents: read
+
 concurrency:
-  group: pr-build-${{ github.event.number }}
+  group: pr-build-${{ github.event.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
   build_backend_image:
     name: Build and Push Backend Image
+    # Only run on PRs from branches in THIS repo (not forks) or on manual
+    # dispatch by a maintainer. Forked-PR code must never execute on the
+    # self-hosted runner or see registry credentials.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' &&
+       github.event.pull_request.head.repo.full_name == github.repository)
     runs-on:
       - self-hosted
       - docker
+    environment: build
     env:
       PR_NUMBER: ${{ github.event.number }}
     steps:
-      - name: Clean up
-        uses: AutoModality/action-clean@v1
+      - name: Clean up workspace
+        run: |
+          cd "${{ github.workspace }}"
+          sudo rm -rf ./* ./.[!.]* ./..?* 2>/dev/null || true
       - name: Checkout code
-        uses: actions/checkout@v4
-      - name: Setup Task
-        uses: arduino/setup-task@v2
-      - name: Setup Buildx
-        uses: docker/setup-buildx-action@v3
-      - name: Login to Docker Registry
-        uses: docker/login-action@v3
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
-          registry: registry.thomasjbarlow.com
+          persist-credentials: false
+      - name: Setup Task
+        uses: arduino/setup-task@b91d5d2c96a56797b48ac1e0e89220bf64044611 # v2.0.0
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Setup Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+      - name: Login to Docker Registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ${{ vars.DOCKER_REGISTRY }}
           username: ${{ secrets.DOCKER_REGISTRY_USERNAME }}
           password: ${{ secrets.DOCKER_REGISTRY_PASSWORD }}
       - name: Create Build-time Config
+        env:
+          DOMAIN: ${{ vars.DOMAIN }}
+          BACKEND_PORT: ${{ vars.BACKEND_PORT }}
+          DATABASE_PORT: ${{ vars.DATABASE_PORT }}
+          DOCKER_REGISTRY: ${{ vars.DOCKER_REGISTRY }}
         run: |
           mkdir -p ./secrets
-          cat > ./secrets/names.env << EOF
-          DOMAIN=${{ vars.DOMAIN || 'names.thomasjbarlow.com' }}
-          BACKEND_PORT=${{ vars.BACKEND_PORT || '8104' }}
-          DATABASE_PORT=${{ vars.DATABASE_PORT || '5432' }}
-          EOF
+          {
+            printf 'DOMAIN=%s\n'          "${DOMAIN:-localhost}"
+            printf 'BACKEND_PORT=%s\n'    "${BACKEND_PORT:-8104}"
+            printf 'DATABASE_PORT=%s\n'   "${DATABASE_PORT:-5432}"
+            printf 'DOCKER_REGISTRY=%s\n' "${DOCKER_REGISTRY}"
+          } > ./secrets/names.env
       - name: Build and Push Backend Image
-        run: task build:prod:backend:tag -- ${{ github.event.number }}
+        env:
+          TAG: ${{ github.event.number || github.run_id }}
+        run: task build:prod:backend:tag -- "$TAG"

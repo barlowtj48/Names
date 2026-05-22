@@ -7,34 +7,57 @@ on:
     branches:
       - main
 
+# Lock down the default GITHUB_TOKEN to read-only.
+permissions:
+  contents: read
+
 concurrency:
   group: deployment
 
 jobs:
   deploy_production:
     name: Deploy Production Stack
-    if: github.event.pull_request.merged == true
+    # Only deploy when a merged PR came from a branch in THIS repo. A merged
+    # PR from a fork is technically possible if a maintainer merges it, but
+    # we still want to refuse running the deploy job (with prod secrets) on
+    # code that was authored externally.
+    if: >-
+      github.event.pull_request.merged == true &&
+      github.event.pull_request.head.repo.full_name == github.repository
     runs-on:
       - self-hosted
       - docker
+    # Bind to a protected GitHub Environment. Configure required reviewers
+    # in repo Settings → Environments → production so deploys cannot run
+    # without manual approval — even if a malicious change reaches main.
+    environment: production
 
     steps:
-      - name: Clean up
-        uses: AutoModality/action-clean@v1
+      - name: Clean up workspace
+        run: |
+          cd "${{ github.workspace }}"
+          sudo rm -rf ./* ./.[!.]* ./..?* 2>/dev/null || true
       - name: Checkout code
-        uses: actions/checkout@v4
-      - name: Setup Task
-        uses: arduino/setup-task@v2
-      - name: Setup Buildx
-        uses: docker/setup-buildx-action@v3
-      - name: Login to Docker Registry
-        uses: docker/login-action@v3
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
-          registry: registry.thomasjbarlow.com
+          persist-credentials: false
+      - name: Setup Task
+        uses: arduino/setup-task@b91d5d2c96a56797b48ac1e0e89220bf64044611 # v2.0.0
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Setup Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+      - name: Login to Docker Registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ${{ vars.DOCKER_REGISTRY }}
           username: ${{ secrets.DOCKER_REGISTRY_USERNAME }}
           password: ${{ secrets.DOCKER_REGISTRY_PASSWORD }}
       - name: Pull Docker Backend Image
-        run: docker pull registry.thomasjbarlow.com/names-backend:${{ github.event.number }}
+        env:
+          REGISTRY: ${{ vars.DOCKER_REGISTRY }}
+          TAG: ${{ github.event.number }}
+        run: docker pull "${REGISTRY}/names-backend:${TAG}"
 
       - name: Create Docker Secrets
         env:
@@ -71,15 +94,25 @@ jobs:
           echo "All Docker secrets created successfully"
 
       - name: Create Runtime Config
+        env:
+          DOMAIN: ${{ vars.DOMAIN }}
+          BACKEND_PORT: ${{ vars.BACKEND_PORT }}
+          DATABASE_PORT: ${{ vars.DATABASE_PORT }}
+          DOCKER_REGISTRY: ${{ vars.DOCKER_REGISTRY }}
+          DEPLOY_NODE: ${{ vars.DEPLOY_NODE }}
         run: |
           mkdir -p ./secrets
-          cat > ./secrets/names.env << EOF
-          DOMAIN=${{ vars.DOMAIN || 'names.thomasjbarlow.com' }}
-          BACKEND_PORT=${{ vars.BACKEND_PORT || '8104' }}
-          DATABASE_PORT=${{ vars.DATABASE_PORT || '5432' }}
-          EOF
+          {
+            printf 'DOMAIN=%s\n'          "${DOMAIN:-localhost}"
+            printf 'BACKEND_PORT=%s\n'    "${BACKEND_PORT:-8104}"
+            printf 'DATABASE_PORT=%s\n'   "${DATABASE_PORT:-5432}"
+            printf 'DOCKER_REGISTRY=%s\n' "${DOCKER_REGISTRY}"
+            printf 'DEPLOY_NODE=%s\n'     "${DEPLOY_NODE}"
+          } > ./secrets/names.env
 
       - name: Deploy Production Stack
+        env:
+          TAG: ${{ github.event.number }}
         run: |
-          cd ${{ github.workspace }}
-          task deploy:prod:tag -- ${{ github.event.number }}
+          cd "${{ github.workspace }}"
+          task deploy:prod:tag -- "$TAG"
