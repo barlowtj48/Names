@@ -1,15 +1,15 @@
 name: Deploy Production
 
 on:
-  pull_request:
-    types:
-      - closed
+  push:
     branches:
       - main
 
-# Lock down the default GITHUB_TOKEN to read-only.
+# Lock down the default GITHUB_TOKEN. Needs pull-requests:read so we can
+# look up which PR produced the merge commit (to recover the image tag).
 permissions:
   contents: read
+  pull-requests: read
 
 concurrency:
   group: deployment
@@ -17,13 +17,6 @@ concurrency:
 jobs:
   deploy_production:
     name: Deploy Production Stack
-    # Only deploy when a merged PR came from a branch in THIS repo. A merged
-    # PR from a fork is technically possible if a maintainer merges it, but
-    # we still want to refuse running the deploy job (with prod secrets) on
-    # code that was authored externally.
-    if: >-
-      github.event.pull_request.merged == true &&
-      github.event.pull_request.head.repo.full_name == github.repository
     runs-on:
       - self-hosted
       - docker
@@ -53,15 +46,33 @@ jobs:
           registry: ${{ vars.DOCKER_REGISTRY }}
           username: ${{ secrets.DOCKER_REGISTRY_USERNAME }}
           password: ${{ secrets.DOCKER_REGISTRY_PASSWORD }}
+      - name: Resolve PR number from merge commit
+        id: pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          PR=$(curl -fsSL \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${REPO}/commits/${SHA}/pulls" \
+            | jq -r '[.[] | select(.merged_at != null)][0].number // empty')
+          if [ -z "$PR" ]; then
+            echo "No merged PR found for commit ${SHA}; refusing to deploy." >&2
+            exit 1
+          fi
+          echo "Resolved PR #${PR} for commit ${SHA}"
+          echo "number=${PR}" >> "$GITHUB_OUTPUT"
       - name: Pull Docker Backend Image
         env:
           REGISTRY: ${{ vars.DOCKER_REGISTRY }}
-          TAG: ${{ github.event.number }}
+          TAG: ${{ steps.pr.outputs.number }}
         run: docker pull "${REGISTRY}/names-backend:${TAG}"
 
       - name: Create Docker Secrets
         env:
-          VERSION: ${{ github.event.number }}
+          VERSION: ${{ steps.pr.outputs.number }}
           SECRET_DATABASE_USERNAME: ${{ secrets.DATABASE_USERNAME }}
           SECRET_DATABASE_PASSWORD: ${{ secrets.DATABASE_PASSWORD }}
           SECRET_DATABASE_NAME: ${{ secrets.DATABASE_NAME }}
@@ -112,7 +123,7 @@ jobs:
 
       - name: Deploy Production Stack
         env:
-          TAG: ${{ github.event.number }}
+          TAG: ${{ steps.pr.outputs.number }}
         run: |
           cd "${{ github.workspace }}"
           task deploy:prod:tag -- "$TAG"
