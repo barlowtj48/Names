@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Names — Admin</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Names — Admin</h1>
+      <p><a href="/">← Back to public list</a></p>
+    </header>
+
+    <main>
+      <section id="login-section">
+        <h2>Login</h2>
+        <form id="login-form">
+          <input
+            type="text"
+            name="username"
+            placeholder="Username"
+            autocomplete="username"
+            required
+          />
+          <input
+            type="password"
+            name="password"
+            placeholder="Password"
+            autocomplete="current-password"
+            required
+          />
+          <button type="submit">Log in</button>
+          <span id="login-error" class="error"></span>
+        </form>
+      </section>
+
+      <section id="admin-section" style="display: none">
+        <div class="controls">
+          <button id="logout-btn">Log out</button>
+          <button id="reload-btn">Reload</button>
+        </div>
+        <table id="names-table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Text</th>
+              <th>Status</th>
+              <th>👍</th>
+              <th>👎</th>
+              <th>Score</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </section>
+    </main>
+
+    <script src="/static/admin.js"></script>
+  </body>
+</html>

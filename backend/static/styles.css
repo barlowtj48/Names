@@ -1,0 +1,66 @@
+/* Names — minimal styling */
+:root {
+  --bg: #0f1115;
+  --fg: #e7ebf0;
+  --muted: #8b94a3;
+  --card: #1a1f29;
+  --card-2: #232a37;
+  --accent: #6ea8fe;
+  --up: #4ade80;
+  --down: #f87171;
+  --border: #2a3140;
+  --error: #f87171;
+}
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f6f7f9; --fg: #1a1f29; --muted: #586577;
+    --card: #ffffff; --card-2: #f0f3f8;
+    --accent: #2563eb; --up: #16a34a; --down: #dc2626;
+    --border: #d8deea; --error: #b91c1c;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; padding: 0;
+  font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: var(--bg); color: var(--fg);
+}
+header, main, footer { max-width: 720px; margin: 0 auto; padding: 1rem; }
+header h1 { margin: 0 0 0.25rem; }
+.tagline { color: var(--muted); margin: 0 0 1rem; }
+footer { color: var(--muted); font-size: 0.9rem; }
+footer a { color: var(--accent); }
+.muted { color: var(--muted); }
+.error { color: var(--error); margin-left: 0.5rem; }
+.submit form, .controls form {
+  display: flex; gap: 0.5rem; align-items: center;
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 8px; padding: 0.75rem; margin-bottom: 0.75rem;
+}
+input[type=text], input[type=search], input[type=password], select {
+  flex: 1; padding: 0.5rem 0.75rem; font: inherit;
+  background: var(--card-2); color: var(--fg);
+  border: 1px solid var(--border); border-radius: 6px;
+}
+button {
+  padding: 0.5rem 1rem; font: inherit; cursor: pointer;
+  background: var(--accent); color: white; border: 0; border-radius: 6px;
+}
+button:hover { filter: brightness(1.1); }
+.names-list { display: flex; flex-direction: column; gap: 0.5rem; }
+.name-row {
+  display: flex; justify-content: space-between; align-items: center;
+  background: var(--card); border: 1px solid var(--border);
+  border-radius: 8px; padding: 0.75rem 1rem;
+}
+.name-text { font-size: 1.05rem; word-break: break-word; }
+.vote-controls { display: flex; gap: 0.5rem; align-items: center; }
+.vote {
+  background: var(--card-2); color: var(--fg);
+  border: 1px solid var(--border); padding: 0.35rem 0.7rem;
+}
+.vote.up.active   { background: var(--up); color: white; border-color: var(--up); }
+.vote.down.active { background: var(--down); color: white; border-color: var(--down); }
+.score { min-width: 2.5ch; text-align: center; font-variant-numeric: tabular-nums; color: var(--muted); }
+table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+th, td { padding: 0.5rem; border-bottom: 1px solid var(--border); text-align: left; }

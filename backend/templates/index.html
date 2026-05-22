@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Names</title>
+    <link rel="stylesheet" href="/static/styles.css" />
+    <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+    <script defer src="/static/app.js"></script>
+  </head>
+  <body>
+    <header>
+      <h1>Names</h1>
+      <p class="tagline">
+        Vote on names. Submit your own. Anonymous, but one vote per person.
+      </p>
+    </header>
+
+    <main>
+      <section class="submit">
+        <form
+          id="submit-form"
+          hx-post="/api/names"
+          hx-target="#submit-error"
+          hx-swap="innerHTML"
+          hx-on::after-request="if(event.detail.successful){this.reset(); document.body.dispatchEvent(new CustomEvent('names:refresh'));}"
+        >
+          <input
+            type="text"
+            name="text"
+            placeholder="Submit a name…"
+            maxlength="80"
+            required
+            autocomplete="off"
+          />
+          <button type="submit">Submit</button>
+          <span id="submit-error" class="error"></span>
+        </form>
+      </section>
+
+      <section class="controls">
+        <form
+          id="filter-form"
+          hx-get="/api/names"
+          hx-target="#names-list"
+          hx-swap="innerHTML"
+          hx-trigger="change, keyup delay:300ms from:input[name='q'], names:refresh from:body, load"
+        >
+          <label
+            >Sort:
+            <select name="sort">
+              <option value="top">Top</option>
+              <option value="controversial">Controversial</option>
+              <option value="new">New</option>
+            </select>
+          </label>
+          <input
+            type="search"
+            name="q"
+            placeholder="Search names…"
+            autocomplete="off"
+          />
+        </form>
+      </section>
+
+      <section id="names-list" class="names-list">
+        <p class="muted">Loading…</p>
+      </section>
+    </main>
+
+    <footer>
+      <a href="/admin">Admin</a>
+    </footer>
+  </body>
+</html>

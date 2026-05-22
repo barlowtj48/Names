@@ -1,0 +1,18 @@
+# Go
+/tmp/
+*.exe
+*.test
+*.out
+backend/tmp/
+build-errors.log
+
+# Secrets / env
+/secrets/*.env
+
+# Editor
+.vscode/
+.idea/
+.DS_Store
+
+# Docker
+docker-compose.override.yml

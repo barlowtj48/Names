@@ -1,0 +1,95 @@
+secrets:
+  app_secrets:
+    external: true
+    name: names_app_secrets_v${NAMES_VERSION}
+  database_username:
+    external: true
+    name: names_database_username_v${NAMES_VERSION}
+  database_password:
+    external: true
+    name: names_database_password_v${NAMES_VERSION}
+  database_name:
+    external: true
+    name: names_database_name_v${NAMES_VERSION}
+
+services:
+  names-db:
+    image: postgres:16.1-alpine
+    deploy:
+      placement:
+        constraints:
+          - node.hostname == mediapc
+      restart_policy:
+        condition: any
+        delay: 10s
+        window: 40s
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 3s
+      timeout: 5s
+      start_period: 30s
+    environment:
+      POSTGRES_USER_FILE: /run/secrets/database_username
+      POSTGRES_PASSWORD_FILE: /run/secrets/database_password
+      POSTGRES_DB_FILE: /run/secrets/database_name
+      PGPORT: ${DATABASE_PORT}
+    volumes:
+      - names-data-drive:/var/lib/postgresql/data/
+    networks:
+      - swarm-network
+    secrets:
+      - database_username
+      - database_password
+      - database_name
+
+  names-backend:
+    image: registry.thomasjbarlow.com/names-backend:${NAMES_VERSION:-latest}
+    environment:
+      - ENV=production
+      - DOMAIN=${DOMAIN}
+      - BACKEND_PORT=${BACKEND_PORT}
+      - DATABASE_HOST=names-db
+      - DATABASE_PORT=${DATABASE_PORT}
+    secrets:
+      - app_secrets
+    networks:
+      - swarm-network
+      - external-network
+    deploy:
+      placement:
+        constraints:
+          - node.hostname == mediapc
+      mode: replicated
+      replicas: 1
+      restart_policy:
+        condition: any
+        delay: 10s
+        window: 40s
+      update_config:
+        order: start-first
+        failure_action: rollback
+      labels:
+        - "traefik.enable=true"
+
+        - "traefik.http.routers.names_app.rule=Host(`${DOMAIN}`)"
+        - "traefik.http.routers.names_app.entrypoints=websecure"
+        - "traefik.http.routers.names_app.tls=true"
+        - "traefik.http.routers.names_app.tls.certresolver=cloudflare"
+
+        - "traefik.http.routers.names_app_http.rule=Host(`${DOMAIN}`)"
+        - "traefik.http.routers.names_app_http.entrypoints=web"
+
+        - "traefik.http.services.names-backend.loadbalancer.server.port=${BACKEND_PORT}"
+
+volumes:
+  names-data-drive:
+    external: true
+    name: names-data-drive
+
+networks:
+  swarm-network:
+    name: swarm-network
+    external: true
+  external-network:
+    name: external-network
+    external: true

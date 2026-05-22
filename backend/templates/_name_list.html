@@ -1,0 +1,3 @@
+{{ range .Names }}{{ template "name_row" . }}{{ else }}
+<p class="muted">No names yet. Be the first to submit one!</p>
+{{ end }}

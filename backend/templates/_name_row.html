@@ -1,0 +1,26 @@
+{{ define "name_row" }}
+<div class="name-row" id="name-{{ .ID }}">
+  <div class="name-text">{{ .Text }}</div>
+  <div class="vote-controls">
+    <button
+      class="vote up{{ if eq .MyVote 1 }} active{{ end }}"
+      hx-post="/api/names/{{ .ID }}/vote"
+      hx-vals='{"value": {{ if eq .MyVote 1 }}0{{ else }}1{{ end }} }'
+      hx-target="#name-{{ .ID }}"
+      hx-swap="outerHTML"
+    >
+      👍 <span class="count">{{ .Up }}</span>
+    </button>
+    <span class="score" title="net score">{{ .Score }}</span>
+    <button
+      class="vote down{{ if eq .MyVote -1 }} active{{ end }}"
+      hx-post="/api/names/{{ .ID }}/vote"
+      hx-vals='{"value": {{ if eq .MyVote -1 }}0{{ else }}-1{{ end }} }'
+      hx-target="#name-{{ .ID }}"
+      hx-swap="outerHTML"
+    >
+      👎 <span class="count">{{ .Down }}</span>
+    </button>
+  </div>
+</div>
+{{ end }} {{ template "name_row" .N }}
