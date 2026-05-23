@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/TwiN/go-away"
+	goaway "github.com/TwiN/go-away"
 	"github.com/barlowtj48/names/backend/middlewares"
 	"github.com/barlowtj48/names/shared/database"
 	"github.com/barlowtj48/names/shared/models"
