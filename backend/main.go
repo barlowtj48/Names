@@ -5,6 +5,8 @@ import (
 	"html/template"
 	"net/http"
 	"path/filepath"
+	"strconv"
+	"time"
 
 	"github.com/barlowtj48/names/backend/handlers"
 	"github.com/barlowtj48/names/backend/middlewares"
@@ -60,6 +62,10 @@ func main() {
 		r.LoadHTMLGlob(templatesGlob)
 		r.Static("/static", staticDir)
 	}
+
+	// Cache-bust static assets on every process start so Cloudflare/browser
+	// caches release after each deploy.
+	handlers.StaticVersion = strconv.FormatInt(time.Now().Unix(), 10)
 
 	// Health
 	r.GET("/healthz", handlers.Health)
