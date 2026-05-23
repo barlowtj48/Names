@@ -1,4 +1,4 @@
-# Plan: Names voting site (names.thomasjbarlow.com)
+# Plan: Names voting site (names-that-mean-something-else.com)
 
 Anonymous name-voting site (👍/👎 + submit) with admin moderation, built to match BarlowFabrication's CI/CD: Go + Gin + GORM + Postgres backend, deployed as Docker images to the existing Docker Swarm node `mediapc` via the self-hosted GitHub Actions runner, fronted by the existing Traefik + Cloudflare cert resolver. Frontend is intentionally minimal — HTMX over Go `html/template` — so there is no Node build step and the production image is a single small Go binary + static assets.
 
@@ -20,15 +20,15 @@ Anonymous name-voting site (👍/👎 + submit) with admin moderation, built to 
 9. `docker-compose.yml` with only `names-db` (postgres:16.1-alpine) and `names-backend` (hot-reload), single bridge network, named volume `names-data`.
 
 ### Phase 4 — Production stack & CI/CD (parallel to Phase 3 once Phase 2 compiles)
-10. `stack.yml` for Docker Swarm: postgres + backend, constrained to `node.hostname == mediapc`, versioned external secrets (`names_app_secrets_v${NAMES_VERSION}` etc.), Traefik labels routing `` Host(`names.thomasjbarlow.com`) `` → backend port 8104 with `cloudflare` cert resolver, joins existing `traefik-public` overlay network.
+10. `stack.yml` for Docker Swarm: postgres + backend, constrained to `node.hostname == mediapc`, versioned external secrets (`names_app_secrets_v${NAMES_VERSION}` etc.), Traefik labels routing `` Host(`names-that-mean-something-else.com`) `` → backend port 8104 with `cloudflare` cert resolver, joins existing `traefik-public` overlay network.
 11. `.github/workflows/Build.yml` — PR-triggered on self-hosted runner, builds & pushes `registry.thomasjbarlow.com/names-backend:${PR_NUMBER}`.
 12. `.github/workflows/Deploy.yml` — on PR merge, pulls image, materializes versioned Docker secrets from GitHub repository secrets, runs `task deploy:prod:tag -- ${PR_NUMBER}`, waits for replicas to converge.
 13. Add minimal GitHub secrets: `DATABASE_USERNAME/PASSWORD/NAME`, `ADMIN_USERNAME`, `ADMIN_PASSWORD_BCRYPT`, `ADMIN_JWT_SECRET`, `VOTER_SALT`.
 
 ### Phase 5 — DNS + first deploy
-14. Add Cloudflare DNS `names.thomasjbarlow.com` (proxied) → swarm ingress.
+14. Add Cloudflare DNS `names-that-mean-something-else.com` (proxied) → swarm ingress.
 15. Pre-create external volume `names-data-drive` on `mediapc`.
-16. Open + merge first PR; verify site loads at `https://names.thomasjbarlow.com`.
+16. Open + merge first PR; verify site loads at `https://names-that-mean-something-else.com`.
 
 ## Relevant files (all new)
 - `backend/main.go` — Gin bootstrap + template loading.
@@ -47,7 +47,7 @@ Anonymous name-voting site (👍/👎 + submit) with admin moderation, built to 
 4. 20 rapid submits → 429 from rate limiter.
 5. Admin login with wrong password → 401; correct → JWT; `DELETE /api/admin/names/:id` with JWT → name disappears from public list.
 6. PR opened → Build workflow green, image in `registry.thomasjbarlow.com`. PR merged → Deploy workflow green, `docker service ls` on `mediapc` shows `names_names-backend` 1/1.
-7. `https://names.thomasjbarlow.com` loads with a valid Cloudflare-issued cert; `/api/names` returns JSON.
+7. `https://names-that-mean-something-else.com` loads with a valid Cloudflare-issued cert; `/api/names` returns JSON.
 
 ## Decisions
 - Frontend: HTMX + `html/template` (no Node, single-stage Go build).
