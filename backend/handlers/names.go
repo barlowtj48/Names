@@ -169,8 +169,10 @@ func SubmitName(c *gin.Context) {
 	if wantsHTML(c) {
 		c.Header("HX-Trigger", "names:refresh")
 		c.String(http.StatusOK, "")
+		BroadcastChange()
 		return
 	}
+	BroadcastChange()
 	c.JSON(http.StatusCreated, gin.H{"id": name.ID})
 }
 
@@ -241,8 +243,10 @@ func Vote(c *gin.Context) {
 			return
 		}
 		c.HTML(http.StatusOK, "_name_row.html", gin.H{"N": row, "View": currentView(c)})
+		BroadcastChange()
 		return
 	}
+	BroadcastChange()
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
@@ -298,11 +302,14 @@ func Flag(c *gin.Context) {
 		row, qerr := queryOneName(c, uint(id))
 		if qerr == nil && row.Status == string(models.NameStatusActive) {
 			c.HTML(http.StatusOK, "_name_row.html", gin.H{"N": row, "View": currentView(c)})
+			BroadcastChange()
 			return
 		}
 		c.String(http.StatusOK, "")
+		BroadcastChange()
 		return
 	}
+	BroadcastChange()
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
@@ -317,6 +324,7 @@ func DeleteName(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	BroadcastChange()
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 

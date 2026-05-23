@@ -127,5 +127,6 @@ func AdminDecision(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+	BroadcastChange()
 	c.JSON(http.StatusOK, gin.H{"ok": true, "status": newStatus})
 }

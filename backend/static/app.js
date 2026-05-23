@@ -140,6 +140,61 @@ document.body.addEventListener("htmx:afterSwap", (evt) =>
 );
 setInterval(() => refreshRelativeTimes(), 60_000);
 
+// ---------- Live updates via WebSocket ----------
+// The server pushes {"type":"names.changed"} whenever something is submitted,
+// voted, flagged, or moderated. We coalesce rapid bursts into a single
+// `names:refresh` event, which the filter-form already listens for and which
+// re-runs the GET with the existing cookie/fingerprint so the per-voter
+// projection (my_vote, my_flag) stays correct.
+(function () {
+  let refreshTimer = null;
+  function scheduleRefresh() {
+    if (refreshTimer) return;
+    refreshTimer = setTimeout(() => {
+      refreshTimer = null;
+      document.body.dispatchEvent(new CustomEvent("names:refresh"));
+    }, 250);
+  }
+
+  let backoff = 1000;
+  let socket = null;
+  function connect() {
+    const proto = location.protocol === "https:" ? "wss:" : "ws:";
+    const url = `${proto}//${location.host}/ws`;
+    try {
+      socket = new WebSocket(url);
+    } catch (e) {
+      scheduleReconnect();
+      return;
+    }
+    socket.addEventListener("open", () => {
+      backoff = 1000;
+    });
+    socket.addEventListener("message", (evt) => {
+      let data;
+      try {
+        data = JSON.parse(evt.data);
+      } catch {
+        return;
+      }
+      if (data && data.type === "names.changed") scheduleRefresh();
+    });
+    socket.addEventListener("close", scheduleReconnect);
+    socket.addEventListener("error", () => {
+      try {
+        socket.close();
+      } catch {}
+    });
+  }
+  function scheduleReconnect() {
+    setTimeout(connect, backoff);
+    backoff = Math.min(backoff * 2, 15_000);
+  }
+  // Wait for the fingerprint bootstrap to set the voter cookie before opening
+  // the socket so the connection carries a stable voter_id.
+  document.addEventListener("DOMContentLoaded", connect);
+})();
+
 
 // ---------- Offensive view toggle ----------
 // A hidden footer disclosure flips the list into "offensive" mode by mutating
