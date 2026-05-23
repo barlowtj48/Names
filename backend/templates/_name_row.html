@@ -5,7 +5,6 @@
   data-name="{{ .Text }}"
 >
   <div class="name-text">
-    {{ .Text }}
     <button
       type="button"
       class="speak"
@@ -15,6 +14,13 @@
     >
       🔊
     </button>
+    <span class="name-label">{{ .Text }}</span>
+    <time
+      class="name-time"
+      datetime="{{ .CreatedAt.UTC.Format "2006-01-02T15:04:05Z" }}"
+      title="{{ .CreatedAt.Format "Jan 2, 2006 3:04 PM" }}"
+      data-rel
+    >{{ .CreatedAt.Format "Jan 2, 2006" }}</time>
   </div>
   <div class="vote-controls">
     {{ if eq .Status "active" }}{{ if not .MyFlag }}

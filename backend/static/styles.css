@@ -60,7 +60,12 @@ button:hover { filter: brightness(1.1); }
   background: var(--card); border: 1px solid var(--border);
   border-radius: 8px; padding: 0.75rem 1rem;
 }
-.name-text { font-size: 1.05rem; word-break: break-word; display: flex; align-items: center; gap: 0.4rem; }
+.name-text { font-size: 1.05rem; word-break: break-word; display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.name-label { flex: 0 1 auto; }
+.name-time {
+  color: var(--muted); font-size: 0.8rem; font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
 .vote-controls { display: flex; gap: 0.5rem; align-items: center; }
 .vote {
   background: var(--card-2); color: var(--fg);
