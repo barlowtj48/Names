@@ -79,6 +79,10 @@ func main() {
 	// Voter identity is needed for nearly every endpoint.
 	r.Use(middlewares.VoterIdentity())
 
+	// Live updates: clients open /ws and receive {"type":"names.changed"}
+	// whenever something is submitted/voted/flagged/moderated.
+	r.GET("/ws", handlers.WSHandler)
+
 	submitLimiter := middlewares.NewLimiter(rate.Every(15*1e9), 5) // ~4/min, burst 5
 	voteLimiter := middlewares.NewLimiter(rate.Every(1e9), 20)     // 1/sec, burst 20
 	flagLimiter := middlewares.NewLimiter(rate.Every(20*1e9), 5)   // ~3/min, burst 5

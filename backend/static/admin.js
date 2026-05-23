@@ -112,6 +112,51 @@ function showAdmin() {
   $("#login-section").style.display = "none";
   $("#admin-section").style.display = "";
   loadNames();
+  connectLiveUpdates();
+}
+
+// ---------- Live updates ----------
+// Same WebSocket the public page uses; on any change notice we reload the
+// admin tables so moderators always see the freshest state.
+let adminSocket = null;
+let adminBackoff = 1000;
+let adminReloadTimer = null;
+function scheduleAdminReload() {
+  if (adminReloadTimer) return;
+  adminReloadTimer = setTimeout(() => {
+    adminReloadTimer = null;
+    loadNames();
+  }, 300);
+}
+function connectLiveUpdates() {
+  if (adminSocket && adminSocket.readyState <= 1) return;
+  const proto = location.protocol === "https:" ? "wss:" : "ws:";
+  try {
+    adminSocket = new WebSocket(`${proto}//${location.host}/ws`);
+  } catch {
+    setTimeout(connectLiveUpdates, adminBackoff);
+    adminBackoff = Math.min(adminBackoff * 2, 15000);
+    return;
+  }
+  adminSocket.addEventListener("open", () => (adminBackoff = 1000));
+  adminSocket.addEventListener("message", (evt) => {
+    let data;
+    try {
+      data = JSON.parse(evt.data);
+    } catch {
+      return;
+    }
+    if (data && data.type === "names.changed") scheduleAdminReload();
+  });
+  adminSocket.addEventListener("close", () => {
+    setTimeout(connectLiveUpdates, adminBackoff);
+    adminBackoff = Math.min(adminBackoff * 2, 15000);
+  });
+  adminSocket.addEventListener("error", () => {
+    try {
+      adminSocket.close();
+    } catch {}
+  });
 }
 
 function escapeHTML(s) {
