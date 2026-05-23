@@ -82,14 +82,15 @@ func stripNonPhone(s string) string {
 
 // NameRow is the projected row returned to clients/templates.
 type NameRow struct {
-	ID     uint   `json:"id"`
-	Text   string `json:"text"`
-	Up     int    `json:"up"`
-	Down   int    `json:"down"`
-	Score  int    `json:"score"`
-	MyVote int    `json:"my_vote"` // -1, 0, +1
-	MyFlag bool   `json:"my_flag"`
-	Status string `json:"status"`
+	ID        uint      `json:"id"`
+	Text      string    `json:"text"`
+	Up        int       `json:"up"`
+	Down      int       `json:"down"`
+	Score     int       `json:"score"`
+	MyVote    int       `json:"my_vote"` // -1, 0, +1
+	MyFlag    bool      `json:"my_flag"`
+	Status    string    `json:"status"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 func ListNames(c *gin.Context) {
@@ -400,7 +401,7 @@ func queryNames(c *gin.Context, adminAllStatuses bool) ([]NameRow, error) {
 	args = append(args, limit, offset)
 
 	sql := `
-SELECT n.id, n.text, n.status,
+SELECT n.id, n.text, n.status, n.created_at,
        COALESCE(SUM(CASE WHEN v.value =  1 THEN 1 ELSE 0 END), 0) AS up_count,
        COALESCE(SUM(CASE WHEN v.value = -1 THEN 1 ELSE 0 END), 0) AS down_count,
        COALESCE(SUM(v.value), 0) AS score,
@@ -417,8 +418,9 @@ LIMIT ? OFFSET ?`
 		ID        uint
 		Text      string
 		Status    string
-		UpCount   int  `gorm:"column:up_count"`
-		DownCount int  `gorm:"column:down_count"`
+		CreatedAt time.Time `gorm:"column:created_at"`
+		UpCount   int       `gorm:"column:up_count"`
+		DownCount int       `gorm:"column:down_count"`
 		Score     int
 		MyVote    int  `gorm:"column:my_vote"`
 		MyFlag    bool `gorm:"column:my_flag"`
@@ -433,6 +435,7 @@ LIMIT ? OFFSET ?`
 			ID: r.ID, Text: r.Text, Status: r.Status,
 			Up: r.UpCount, Down: r.DownCount, Score: r.Score,
 			MyVote: r.MyVote, MyFlag: r.MyFlag,
+			CreatedAt: r.CreatedAt,
 		})
 	}
 	return out, nil
@@ -456,7 +459,7 @@ func queryOneName(c *gin.Context, id uint) (NameRow, error) {
 	args = append(args, id)
 
 	sql := `
-SELECT n.id, n.text, n.status,
+SELECT n.id, n.text, n.status, n.created_at,
        COALESCE(SUM(CASE WHEN v.value =  1 THEN 1 ELSE 0 END), 0) AS up_count,
        COALESCE(SUM(CASE WHEN v.value = -1 THEN 1 ELSE 0 END), 0) AS down_count,
        COALESCE(SUM(v.value), 0) AS score,
@@ -471,8 +474,9 @@ GROUP BY n.id`
 		ID        uint
 		Text      string
 		Status    string
-		UpCount   int  `gorm:"column:up_count"`
-		DownCount int  `gorm:"column:down_count"`
+		CreatedAt time.Time `gorm:"column:created_at"`
+		UpCount   int       `gorm:"column:up_count"`
+		DownCount int       `gorm:"column:down_count"`
 		Score     int
 		MyVote    int  `gorm:"column:my_vote"`
 		MyFlag    bool `gorm:"column:my_flag"`
@@ -485,6 +489,7 @@ GROUP BY n.id`
 		ID: r.ID, Text: r.Text, Status: r.Status,
 		Up: r.UpCount, Down: r.DownCount, Score: r.Score,
 		MyVote: r.MyVote, MyFlag: r.MyFlag,
+		CreatedAt: r.CreatedAt,
 	}, nil
 }
 
