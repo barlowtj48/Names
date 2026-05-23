@@ -1,13 +1,42 @@
 {{ define "name_row" }}
-<div class="name-row" id="name-{{ .ID }}">
-  <div class="name-text">{{ .Text }}</div>
+<div
+  class="name-row name-row--{{ .Status }}"
+  id="name-{{ .ID }}"
+  data-name="{{ .Text }}"
+>
+  <div class="name-text">
+    {{ .Text }}
+    <button
+      type="button"
+      class="speak"
+      title="Speak this name"
+      aria-label="Speak {{ .Text }}"
+      data-speak="{{ .Text }}"
+    >
+      🔊
+    </button>
+  </div>
   <div class="vote-controls">
+    {{ if eq .Status "active" }}{{ if not .MyFlag }}
+    <button
+      class="flag"
+      title="Flag as offensive"
+      hx-post="/api/names/{{ .ID }}/flag"
+      hx-target="#name-{{ .ID }}"
+      hx-swap="outerHTML"
+      hx-confirm="Flag this name as offensive? After enough flags it disappears from the public list until a moderator reviews it."
+      hx-include="#filter-form"
+    >
+      🚩
+    </button>
+    {{ end }}{{ end }}
     <button
       class="vote up{{ if eq .MyVote 1 }} active{{ end }}"
       hx-post="/api/names/{{ .ID }}/vote"
       hx-vals='{"value": {{ if eq .MyVote 1 }}0{{ else }}1{{ end }} }'
       hx-target="#name-{{ .ID }}"
       hx-swap="outerHTML"
+      hx-include="#filter-form"
     >
       👍 <span class="count">{{ .Up }}</span>
     </button>
@@ -18,6 +47,7 @@
       hx-vals='{"value": {{ if eq .MyVote -1 }}0{{ else }}-1{{ end }} }'
       hx-target="#name-{{ .ID }}"
       hx-swap="outerHTML"
+      hx-include="#filter-form"
     >
       👎 <span class="count">{{ .Down }}</span>
     </button>

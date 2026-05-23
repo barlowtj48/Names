@@ -73,6 +73,7 @@ func main() {
 
 	submitLimiter := middlewares.NewLimiter(rate.Every(15*1e9), 5) // ~4/min, burst 5
 	voteLimiter := middlewares.NewLimiter(rate.Every(1e9), 20)     // 1/sec, burst 20
+	flagLimiter := middlewares.NewLimiter(rate.Every(20*1e9), 5)   // ~3/min, burst 5
 
 	api := r.Group("/api")
 	{
@@ -87,6 +88,11 @@ func main() {
 			voteLimiter.Middleware(),
 			handlers.Vote,
 		)
+		api.POST("/names/:id/flag",
+			middlewares.RequireFingerprint(),
+			flagLimiter.Middleware(),
+			handlers.Flag,
+		)
 
 		api.POST("/admin/login", handlers.AdminLogin)
 		api.POST("/admin/logout", handlers.AdminLogout)
@@ -94,6 +100,8 @@ func main() {
 		admin := api.Group("/admin", middlewares.AdminAuth())
 		admin.GET("/names", handlers.AdminListNames)
 		admin.DELETE("/names/:id", handlers.DeleteName)
+		admin.GET("/names/queue", handlers.AdminQueue)
+		admin.POST("/names/:id/decision", handlers.AdminDecision)
 	}
 
 	addr := ":" + cfg.BackendPort
