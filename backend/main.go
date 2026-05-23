@@ -57,10 +57,12 @@ func main() {
 	if cfg.IsProduction() {
 		r.LoadHTMLGlob(filepath.Join("templates", "*.html"))
 		r.Static("/static", "static")
+		r.StaticFile("/favicon.ico", filepath.Join("static", "favicon.ico"))
 	} else {
 		r.SetFuncMap(template.FuncMap{})
 		r.LoadHTMLGlob(templatesGlob)
 		r.Static("/static", staticDir)
+		r.StaticFile("/favicon.ico", filepath.Join(staticDir, "favicon.ico"))
 	}
 
 	// Cache-bust static assets on every process start so Cloudflare/browser
