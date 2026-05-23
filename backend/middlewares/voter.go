@@ -1,7 +1,10 @@
 package middlewares
 
 import (
+	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"net/http"
 
@@ -9,33 +12,37 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// VoterIdentity derives a stable, anonymous per-voter hash from the
-// FingerprintJS visitorId header combined with the client IP and a server salt.
-// Stored as a hex SHA-256; the raw fingerprint and IP are not persisted.
-//
-// Header: X-Voter-Fingerprint (provided by static/app.js using FingerprintJS OSS).
-// If the header is missing, we still compute a hash from IP+UA so requests can be
-// rate-limited, but submit/vote handlers will reject those.
-const VoterHashKey = "voter_hash"
-const HasFingerprintKey = "has_fingerprint"
+// VoterIdentity derives a stable, anonymous per-voter hash from a long-lived
+// HttpOnly cookie. IP and User-Agent are intentionally NOT part of the hash so
+// that switching mobile networks or browser updates do not orphan votes. The
+// optional X-Voter-Fingerprint header (FingerprintJS visitorId) is used only as
+// the cookie seed on first contact, giving best-effort recovery on a device
+// whose cookies were cleared but whose fingerprint is still stable.
+const (
+	VoterHashKey      = "voter_hash"
+	HasFingerprintKey = "has_fingerprint"
+	voterCookieName   = "voter_id"
+	cookieMaxAgeSecs  = 60 * 60 * 24 * 365 * 10 // ~10 years
+	hashPrefix        = "v2:"
+)
 
 func VoterIdentity() gin.HandlerFunc {
-	salt := secrets.Get().VoterSalt
+	cfg := secrets.Get()
+	salt := cfg.VoterSalt
+	secure := cfg.IsProduction()
 	return func(c *gin.Context) {
-		fp := c.GetHeader("X-Voter-Fingerprint")
-		ip := c.ClientIP()
-		ua := c.GetHeader("User-Agent")
-
-		h := sha256.New()
-		h.Write([]byte(salt))
-		h.Write([]byte{0})
-		h.Write([]byte(fp))
-		h.Write([]byte{0})
-		h.Write([]byte(ip))
-		h.Write([]byte{0})
-		h.Write([]byte(ua))
-		c.Set(VoterHashKey, hex.EncodeToString(h.Sum(nil)))
-		c.Set(HasFingerprintKey, fp != "")
+		cookieID, _ := c.Cookie(voterCookieName)
+		if cookieID == "" {
+			if fp := c.GetHeader("X-Voter-Fingerprint"); fp != "" {
+				cookieID = fp
+			} else {
+				cookieID = newCookieID()
+			}
+			c.SetSameSite(http.SameSiteLaxMode)
+			c.SetCookie(voterCookieName, cookieID, cookieMaxAgeSecs, "/", "", secure, true)
+		}
+		c.Set(VoterHashKey, voterHashFor(salt, cookieID))
+		c.Set(HasFingerprintKey, true)
 		c.Next()
 	}
 }
@@ -44,7 +51,7 @@ func RequireFingerprint() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if has, _ := c.Get(HasFingerprintKey); has != true {
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
-				"error": "voter fingerprint required",
+				"error": "voter identity required",
 			})
 			return
 		}
@@ -56,4 +63,17 @@ func VoterHash(c *gin.Context) string {
 	v, _ := c.Get(VoterHashKey)
 	s, _ := v.(string)
 	return s
+}
+
+func newCookieID() string {
+	var b [16]byte
+	_, _ = rand.Read(b[:])
+	return base64.RawURLEncoding.EncodeToString(b[:])
+}
+
+func voterHashFor(salt, id string) string {
+	mac := hmac.New(sha256.New, []byte(salt))
+	mac.Write([]byte(hashPrefix))
+	mac.Write([]byte(id))
+	return hex.EncodeToString(mac.Sum(nil))
 }

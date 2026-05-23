@@ -47,11 +47,21 @@
           <input
             type="text"
             name="text"
+            id="submit-input"
             placeholder="Submit a name…"
             maxlength="80"
             required
             autocomplete="off"
           />
+          <button
+            type="button"
+            id="submit-preview"
+            class="speak"
+            title="Hear how it sounds"
+            aria-label="Preview pronunciation"
+          >
+            🔊
+          </button>
           <button type="submit">Submit</button>
           <span id="submit-error" class="error"></span>
         </form>
@@ -65,30 +75,98 @@
           hx-swap="innerHTML"
           hx-trigger="change, keyup delay:300ms from:input[name='q'], names:refresh from:body, load"
         >
-          <label
-            >Sort:
-            <select name="sort">
-              <option value="top">Top</option>
-              <option value="controversial">Controversial</option>
-              <option value="new">New</option>
-            </select>
+          <input type="hidden" name="view" id="view-input" value="active" />
+
+          <fieldset class="seg" aria-label="Sort">
+            <legend>Sort</legend>
+            <label
+              ><input type="radio" name="sort" value="top" checked /><span
+                >Top</span
+              ></label
+            >
+            <label
+              ><input type="radio" name="sort" value="controversial" /><span
+                >Controversial</span
+              ></label
+            >
+            <label
+              ><input type="radio" name="sort" value="new" /><span
+                >New</span
+              ></label
+            >
+          </fieldset>
+
+          <fieldset class="seg" aria-label="Timeframe">
+            <legend>Timeframe</legend>
+            <label
+              ><input type="radio" name="window" value="today" /><span
+                >Today</span
+              ></label
+            >
+            <label
+              ><input type="radio" name="window" value="month" /><span
+                >Month</span
+              ></label
+            >
+            <label
+              ><input type="radio" name="window" value="year" /><span
+                >Year</span
+              ></label
+            >
+            <label
+              ><input type="radio" name="window" value="all" checked /><span
+                >All time</span
+              ></label
+            >
+          </fieldset>
+
+          <label class="toggle">
+            <input type="checkbox" name="mine" value="unvoted" />
+            <span>Unvoted only</span>
           </label>
-          <input
-            type="search"
-            name="q"
-            placeholder="Search names…"
-            autocomplete="off"
-          />
+
+          <div class="row">
+            <input
+              type="search"
+              name="q"
+              placeholder="Search names…"
+              autocomplete="off"
+            />
+            <button
+              type="button"
+              id="speak-all"
+              title="Read the current list aloud"
+            >
+              🔊 Read list
+            </button>
+            <button type="button" id="speak-stop" title="Stop reading" hidden>
+              ⏹ Stop
+            </button>
+          </div>
         </form>
       </section>
 
-      <section id="names-list" class="names-list">
+      <section id="names-list" class="names-list" aria-live="polite">
         <p class="muted">Loading…</p>
       </section>
     </main>
 
     <footer>
-      <a href="/admin">Admin</a>
+      <details class="offensive-toggle">
+        <summary>▸ Show offensive submissions</summary>
+        <p class="muted">
+          We don't endorse any of the names below — they've been identified as
+          offensive and are kept here only for the record. Viewer discretion
+          advised. I prefer clean list for the ability to share the fun meaning
+          with anyone without worrying about accidentally showing something
+          inappropriate. If you want to see the full list, check the box below.
+        </p>
+        <label class="toggle">
+          <input type="checkbox" id="offensive-view-toggle" />
+          <span>I understand — show me the offensive list</span>
+        </label>
+      </details>
+      <p><a href="/admin">Admin</a></p>
     </footer>
   </body>
 </html>

@@ -12,6 +12,63 @@ async function apiFetch(path, opts = {}) {
 }
 
 async function loadNames() {
+  await Promise.all([loadQueue(), loadAllNames()]);
+}
+
+async function loadQueue() {
+  const r = await apiFetch("/api/admin/names/queue");
+  if (r.status === 401) {
+    logout();
+    return;
+  }
+  const data = await r.json();
+  const tbody = $("#queue-table tbody");
+  tbody.innerHTML = "";
+  const queue = data.queue || [];
+  $("#queue-count").textContent = queue.length
+    ? `(${queue.length})`
+    : "(empty)";
+  for (const n of queue) {
+    const tr = document.createElement("tr");
+    const when = n.last_flagged
+      ? new Date(n.last_flagged).toLocaleString()
+      : "—";
+    tr.innerHTML = `
+      <td>${n.id}</td>
+      <td>${escapeHTML(n.text)}</td>
+      <td>${n.flag_count}</td>
+      <td>${when}</td>
+      <td class="queue-actions">
+        <button data-id="${n.id}" data-action="dismiss" class="dismiss">Dismiss</button>
+        <button data-id="${n.id}" data-action="confirm" class="confirm">Confirm offensive</button>
+        <button data-id="${n.id}" data-action="remove"  class="remove">Remove</button>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  }
+  tbody.querySelectorAll("button[data-action]").forEach((b) => {
+    b.addEventListener("click", async () => {
+      const action = b.dataset.action;
+      const label =
+        action === "dismiss"
+          ? "Dismiss (restore to active)?"
+          : action === "confirm"
+            ? "Confirm offensive (hide from default list)?"
+            : "Remove permanently?";
+      if (!confirm(label)) return;
+      const r = await apiFetch(
+        "/api/admin/names/" + b.dataset.id + "/decision",
+        {
+          method: "POST",
+          body: JSON.stringify({ action }),
+        },
+      );
+      if (r.ok) loadNames();
+    });
+  });
+}
+
+async function loadAllNames() {
   const r = await apiFetch("/api/admin/names");
   if (r.status === 401) {
     logout();

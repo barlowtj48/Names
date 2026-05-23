@@ -60,7 +60,7 @@ button:hover { filter: brightness(1.1); }
   background: var(--card); border: 1px solid var(--border);
   border-radius: 8px; padding: 0.75rem 1rem;
 }
-.name-text { font-size: 1.05rem; word-break: break-word; }
+.name-text { font-size: 1.05rem; word-break: break-word; display: flex; align-items: center; gap: 0.4rem; }
 .vote-controls { display: flex; gap: 0.5rem; align-items: center; }
 .vote {
   background: var(--card-2); color: var(--fg);
@@ -69,5 +69,70 @@ button:hover { filter: brightness(1.1); }
 .vote.up.active   { background: var(--up); color: white; border-color: var(--up); }
 .vote.down.active { background: var(--down); color: white; border-color: var(--down); }
 .score { min-width: 2.5ch; text-align: center; font-variant-numeric: tabular-nums; color: var(--muted); }
+
+/* Speak + flag buttons share a quiet icon-button style */
+.speak, .flag {
+  background: transparent; color: var(--muted);
+  border: 1px solid transparent; padding: 0.15rem 0.4rem;
+  font-size: 0.95rem; line-height: 1; border-radius: 6px;
+}
+.speak:hover, .flag:hover { color: var(--fg); border-color: var(--border); background: var(--card-2); }
+.flag:hover { color: var(--down); border-color: var(--down); }
+
+/* Offensive rows get a subtle warning tint */
+.name-row--offensive { border-color: var(--down); opacity: 0.85; }
+.name-row--offensive .name-text::before {
+  content: "⚠"; color: var(--down); margin-right: 0.2rem;
+}
+
+/* Segmented radio groups (Sort, Timeframe) */
+.controls form { flex-wrap: wrap; }
+.controls .row { display: flex; gap: 0.5rem; flex: 1 1 100%; align-items: center; }
+fieldset.seg {
+  border: 1px solid var(--border); border-radius: 8px;
+  padding: 0.15rem; margin: 0; display: inline-flex; gap: 2px;
+  background: var(--card-2);
+}
+fieldset.seg legend {
+  font-size: 0.7rem; text-transform: uppercase; color: var(--muted);
+  padding: 0 0.35rem; letter-spacing: 0.05em;
+}
+fieldset.seg label { position: relative; }
+fieldset.seg input { position: absolute; opacity: 0; pointer-events: none; }
+fieldset.seg span {
+  display: inline-block; padding: 0.3rem 0.6rem; border-radius: 6px;
+  cursor: pointer; font-size: 0.9rem; color: var(--muted);
+  user-select: none;
+}
+fieldset.seg input:checked + span {
+  background: var(--accent); color: white;
+}
+fieldset.seg input:focus-visible + span {
+  outline: 2px solid var(--accent); outline-offset: 1px;
+}
+label.toggle {
+  display: inline-flex; gap: 0.4rem; align-items: center;
+  font-size: 0.9rem; color: var(--muted); cursor: pointer;
+}
+label.toggle input { accent-color: var(--accent); }
+
+/* Footer offensive-content disclosure */
+footer details.offensive-toggle {
+  margin: 0 0 0.75rem; padding: 0.5rem 0.75rem;
+  border: 1px dashed var(--border); border-radius: 6px;
+}
+footer details.offensive-toggle summary {
+  cursor: pointer; color: var(--muted); font-size: 0.9rem;
+  list-style: none;
+}
+footer details.offensive-toggle summary::-webkit-details-marker { display: none; }
+footer details.offensive-toggle p { margin: 0.5rem 0; font-size: 0.85rem; }
+
+/* Admin queue table */
+.queue-actions button { margin-right: 0.25rem; padding: 0.25rem 0.6rem; font-size: 0.85rem; }
+.queue-actions .dismiss { background: var(--muted); }
+.queue-actions .confirm { background: var(--down); }
+.queue-actions .remove  { background: #444; }
+
 table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
 th, td { padding: 0.5rem; border-bottom: 1px solid var(--border); text-align: left; }
