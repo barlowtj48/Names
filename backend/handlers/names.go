@@ -364,13 +364,13 @@ func queryNames(c *gin.Context, adminAllStatuses bool) ([]NameRow, error) {
 
 	orderBy := ""
 	switch sort {
-	case "new":
-		orderBy = "n.created_at DESC"
+	case "top": 
+		orderBy = "score DESC, n.created_at DESC"
 	case "controversial":
 		orderBy = "(LEAST(up_count, down_count)::float * LN(up_count + down_count + 1)) DESC, n.created_at DESC"
-	default: // top
-		sort = "top"
-		orderBy = "score DESC, n.created_at DESC"
+	default: // new
+		sort = "new"
+		orderBy = "n.created_at DESC"
 	}
 
 	statusWhere := "n.status = 'active'"
