@@ -1,34 +1,167 @@
-// app.js — load FingerprintJS OSS, attach visitorId to every fetch/htmx request.
-(async function () {
+// app.js — voter identity bootstrap, htmx glue, TTS, live updates.
+
+// ---------- Toasts ----------
+// Small transient messages (errors from votes, rate limits, "submitted").
+function toast(message, kind = "info", ttl = 4000) {
+  const host = document.getElementById("toasts");
+  if (!host) return;
+  const el = document.createElement("div");
+  el.className = `toast toast--${kind}`;
+  el.textContent = message;
+  host.appendChild(el);
+  requestAnimationFrame(() => el.classList.add("show"));
+  setTimeout(() => {
+    el.classList.remove("show");
+    el.addEventListener("transitionend", () => el.remove(), { once: true });
+    setTimeout(() => el.remove(), 600); // fallback if no transition fires
+  }, ttl);
+}
+
+// ---------- Voter identity ----------
+// Load FingerprintJS OSS and attach visitorId to every htmx request. The very
+// first request to the API seeds the voter cookie from this header, so nothing
+// may hit the API (list load, websocket) until the fingerprint is resolved —
+// otherwise the cookie is seeded randomly and fingerprint recovery is lost.
+const identityReady = (async function () {
   const FP_URL = "https://openfpcdn.io/fingerprintjs/v4";
   let visitorId = null;
   try {
-    const FingerprintJS = await import(FP_URL);
-    const fp = await FingerprintJS.load();
-    const result = await fp.get();
+    // Cap the wait so a slow/blocked CDN can't hold up the first list load.
+    const timeout = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error("fingerprint timeout")), 3000)
+    );
+    const result = await Promise.race([
+      import(FP_URL).then((FingerprintJS) => FingerprintJS.load()).then((fp) => fp.get()),
+      timeout,
+    ]);
     visitorId = result.visitorId;
   } catch (err) {
-    console.warn("FingerprintJS failed to load:", err);
+    console.warn("FingerprintJS unavailable, using local id:", err.message || err);
   }
   if (!visitorId) {
     // Fallback: persist a random id in localStorage so the user can still vote.
-    visitorId = localStorage.getItem("names_visitor_id");
-    if (!visitorId) {
+    try {
+      visitorId = localStorage.getItem("names_visitor_id");
+      if (!visitorId) {
+        visitorId = crypto.randomUUID();
+        localStorage.setItem("names_visitor_id", visitorId);
+      }
+    } catch {
       visitorId = crypto.randomUUID();
-      localStorage.setItem("names_visitor_id", visitorId);
     }
   }
   window.__voterFingerprint = visitorId;
 
-  // htmx hook: add fingerprint header to every request.
   document.body.addEventListener("htmx:configRequest", (evt) => {
     evt.detail.headers["X-Voter-Fingerprint"] = visitorId;
   });
-
-  // Trigger first load now that fingerprint is ready (form has hx-trigger="load" too,
-  // but this guarantees it fires after the header hook is registered).
-  document.body.dispatchEvent(new CustomEvent("names:refresh"));
+  return visitorId;
 })();
+
+// ---------- htmx response handling ----------
+// htmx 2 refuses to swap 4xx/5xx responses by default, which would leave a
+// rejected submission with no feedback. Route errors to the right place:
+//   * submit form  → the inline #submit-error span (server already retargets)
+//   * anything else → a toast (vote on a removed name, rate limit, …)
+// JSON bodies ({"error": "..."}) are unwrapped into plain text first.
+document.addEventListener("htmx:beforeSwap", (evt) => {
+  const xhr = evt.detail.xhr;
+  if (!xhr || xhr.status < 400) return;
+  let msg = xhr.responseText || "";
+  const ctype = xhr.getResponseHeader("Content-Type") || "";
+  if (ctype.includes("application/json")) {
+    try {
+      msg = JSON.parse(msg).error || msg;
+    } catch {}
+  }
+  if (!msg) msg = xhr.status === 429 ? "Slow down a little." : "Something went wrong.";
+
+  const src = evt.detail.requestConfig && evt.detail.requestConfig.elt;
+  if (src && src.closest("#submit-form")) {
+    evt.detail.shouldSwap = true;
+    evt.detail.serverResponse = msg;
+    evt.detail.target = document.getElementById("submit-error");
+    return;
+  }
+  evt.detail.shouldSwap = false;
+  toast(msg, "error");
+});
+
+// Network-level failures (offline, server restarting) never reach beforeSwap.
+document.addEventListener("htmx:sendError", () => {
+  toast("Couldn't reach the server — check your connection.", "error");
+});
+
+// Submission accepted: the server fires names:submitted with the accepted text.
+document.body.addEventListener("names:submitted", (evt) => {
+  const form = document.getElementById("submit-form");
+  if (form) form.reset();
+  const input = document.getElementById("submit-input");
+  if (input) input.focus();
+  const text = evt.detail && evt.detail.text;
+  toast(text ? `Added “${text}”` : "Submitted!", "success");
+});
+
+// Clear a stale error as soon as the user edits the input again.
+document.addEventListener("input", (evt) => {
+  if (evt.target && evt.target.id === "submit-input") {
+    const err = document.getElementById("submit-error");
+    if (err) err.textContent = "";
+  }
+});
+
+// ---------- List status + paging ----------
+// Keep a hidden `limit` on the filter form equal to the number of rows on
+// screen, so a live-update refresh re-fetches everything the user has paged
+// through instead of collapsing back to the first page. Reset on any filter
+// change.
+function syncListStatus() {
+  const list = document.getElementById("names-list");
+  const status = document.getElementById("list-status");
+  const form = document.getElementById("filter-form");
+  if (!list || !status || !form) return;
+  const rows = list.querySelectorAll(".name-row").length;
+  const more = !!list.querySelector(".load-more");
+  let limitInput = form.querySelector("input[name='limit']");
+  if (!limitInput) {
+    limitInput = document.createElement("input");
+    limitInput.type = "hidden";
+    limitInput.name = "limit";
+    form.appendChild(limitInput);
+  }
+  limitInput.value = rows > 50 ? String(rows) : "";
+  if (rows === 0) {
+    status.textContent = "";
+  } else {
+    status.textContent = `${rows}${more ? "+" : ""} name${rows === 1 ? "" : "s"}`;
+  }
+}
+document.body.addEventListener("htmx:afterSwap", (evt) => {
+  if (evt.target && (evt.target.id === "names-list" || evt.target.closest?.("#names-list"))) {
+    syncListStatus();
+  }
+});
+document.addEventListener("change", (evt) => {
+  const form = document.getElementById("filter-form");
+  if (form && evt.target && form.contains(evt.target) && evt.target.name !== "limit") {
+    const limitInput = form.querySelector("input[name='limit']");
+    if (limitInput) limitInput.value = "";
+  }
+});
+
+// ---------- Keyboard shortcut ----------
+// "/" focuses search (like GitHub); Escape clears it.
+document.addEventListener("keydown", (evt) => {
+  const tag = (evt.target.tagName || "").toLowerCase();
+  const typing = tag === "input" || tag === "textarea" || evt.target.isContentEditable;
+  if (evt.key === "/" && !typing && !evt.ctrlKey && !evt.metaKey && !evt.altKey) {
+    evt.preventDefault();
+    document.getElementById("search-input")?.focus();
+  } else if (evt.key === "Escape" && evt.target.id === "search-input" && evt.target.value) {
+    evt.target.value = "";
+    evt.target.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+});
 
 // ---------- Text-to-speech ----------
 // Single shared SpeechSynthesis controller. We always cancel before queueing
@@ -50,11 +183,10 @@ const TTS = (() => {
     if (!supported || !texts.length) return;
     synth.cancel();
     let remaining = texts.length;
-    texts.forEach((t, i) => {
+    texts.forEach((t) => {
       const u = new SpeechSynthesisUtterance(String(t));
       u.rate = 1.0;
       u.pitch = 1.0;
-      // Tiny pause between names — done by a trailing space + onend tick.
       u.onend = () => {
         remaining--;
         if (remaining <= 0) showStop(false);
@@ -132,9 +264,10 @@ function refreshRelativeTimes(root) {
     const d = new Date(dt);
     if (isNaN(d.getTime())) return;
     el.textContent = formatRelative(d);
+    // Hover shows the exact time in the viewer's own timezone.
+    el.title = d.toLocaleString();
   });
 }
-document.addEventListener("DOMContentLoaded", () => refreshRelativeTimes());
 document.body.addEventListener("htmx:afterSwap", (evt) =>
   refreshRelativeTimes(evt.target)
 );
@@ -146,18 +279,24 @@ setInterval(() => refreshRelativeTimes(), 60_000);
 // `names:refresh` event, which the filter-form already listens for and which
 // re-runs the GET with the existing cookie/fingerprint so the per-voter
 // projection (my_vote, my_flag) stays correct.
-(function () {
+const live = (function () {
   let refreshTimer = null;
   function scheduleRefresh() {
     if (refreshTimer) return;
     refreshTimer = setTimeout(() => {
       refreshTimer = null;
+      // Don't yank the list out from under someone mid-vote.
+      if (document.querySelector("#names-list .htmx-request")) {
+        scheduleRefresh();
+        return;
+      }
       document.body.dispatchEvent(new CustomEvent("names:refresh"));
     }, 250);
   }
 
   let backoff = 1000;
   let socket = null;
+  let wasConnected = false;
   function connect() {
     const proto = location.protocol === "https:" ? "wss:" : "ws:";
     const url = `${proto}//${location.host}/ws`;
@@ -169,6 +308,9 @@ setInterval(() => refreshRelativeTimes(), 60_000);
     }
     socket.addEventListener("open", () => {
       backoff = 1000;
+      // Catch up on anything missed while disconnected.
+      if (wasConnected) scheduleRefresh();
+      wasConnected = true;
     });
     socket.addEventListener("message", (evt) => {
       let data;
@@ -190,27 +332,46 @@ setInterval(() => refreshRelativeTimes(), 60_000);
     setTimeout(connect, backoff);
     backoff = Math.min(backoff * 2, 15_000);
   }
-  // Wait for the fingerprint bootstrap to set the voter cookie before opening
-  // the socket so the connection carries a stable voter_id.
-  document.addEventListener("DOMContentLoaded", connect);
+  // Reconnect promptly when a backgrounded tab comes back.
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && socket && socket.readyState > 1) {
+      backoff = 1000;
+      connect();
+    }
+  });
+  return { connect };
 })();
 
-
-// ---------- Offensive view toggle ----------
-// A hidden footer disclosure flips the list into "offensive" mode by mutating
-// the hidden view input and re-triggering the filter form. The toggle resets
-// to off on page load so the family-friendly list is always the default.
+// ---------- Page bootstrap ----------
 document.addEventListener("DOMContentLoaded", () => {
+  refreshRelativeTimes();
+
+  // Offensive view toggle: a hidden footer disclosure flips the list into
+  // "offensive" mode by mutating the hidden view input and re-triggering the
+  // filter form. Always resets to off on load so the clean list is default.
   const toggle = document.getElementById("offensive-view-toggle");
   const viewInput = document.getElementById("view-input");
-  const form = document.getElementById("filter-form");
-  if (!toggle || !viewInput || !form) return;
-  toggle.checked = false;
-  viewInput.value = "active";
-  toggle.addEventListener("change", () => {
-    viewInput.value = toggle.checked ? "offensive" : "active";
-    document.body.dispatchEvent(new CustomEvent("names:refresh"));
-  });
+  if (toggle && viewInput) {
+    toggle.checked = false;
+    viewInput.value = "active";
+    toggle.addEventListener("change", () => {
+      viewInput.value = toggle.checked ? "offensive" : "active";
+      document.body.dispatchEvent(new CustomEvent("names:refresh"));
+    });
+  }
+
+  // Remember whether the guidelines box was collapsed.
+  const guidelines = document.getElementById("guidelines");
+  if (guidelines) {
+    try {
+      if (localStorage.getItem("names_guidelines") === "closed") guidelines.open = false;
+    } catch {}
+    guidelines.addEventListener("toggle", () => {
+      try {
+        localStorage.setItem("names_guidelines", guidelines.open ? "open" : "closed");
+      } catch {}
+    });
+  }
 
   // Disable TTS controls if the browser can't do speech synthesis.
   if (!TTS.supported) {
@@ -220,4 +381,10 @@ document.addEventListener("DOMContentLoaded", () => {
         el.hidden = true;
       });
   }
+
+  // First list load + live socket only once the voter identity is settled.
+  identityReady.then(() => {
+    document.body.dispatchEvent(new CustomEvent("names:refresh"));
+    live.connect();
+  });
 });

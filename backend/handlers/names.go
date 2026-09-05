@@ -21,6 +21,12 @@ import (
 const maxNameLength = 80
 const minNameLength = 1
 
+// defaultPageSize is how many names one list request returns. Clients page
+// with ?offset= and the "Load more" button the list template renders when
+// HasMore is set.
+const defaultPageSize = 50
+const maxPageSize = 500
+
 // FlagsToHide is the number of distinct voter flags required to move a name
 // out of the public list and into the admin review queue.
 const FlagsToHide = 3
@@ -80,6 +86,13 @@ func stripNonPhone(s string) string {
 	return b.String()
 }
 
+// escapeLike escapes the ILIKE wildcards so a search for "100%" or "a_b"
+// matches literally instead of acting as a pattern.
+func escapeLike(s string) string {
+	r := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+	return r.Replace(s)
+}
+
 // NameRow is the projected row returned to clients/templates.
 type NameRow struct {
 	ID        uint      `json:"id"`
@@ -89,33 +102,79 @@ type NameRow struct {
 	Score     int       `json:"score"`
 	MyVote    int       `json:"my_vote"` // -1, 0, +1
 	MyFlag    bool      `json:"my_flag"`
+	Mine      bool      `json:"mine"` // submitted by the current voter
 	Status    string    `json:"status"`
 	CreatedAt time.Time `json:"created_at"`
+	// Rank is the 1-based position in the current sort, only populated for
+	// list responses under sort=top so the template can show "#3".
+	Rank int `json:"rank,omitempty"`
+}
+
+// listQuery is the parsed, validated form of the list filter parameters.
+type listQuery struct {
+	Sort   string
+	Q      string
+	View   string
+	Window string
+	Mine   string
+	Limit  int
+	Offset int
+}
+
+func parseListQuery(c *gin.Context) listQuery {
+	lq := listQuery{
+		Sort:   c.DefaultQuery("sort", "new"),
+		Q:      strings.TrimSpace(c.Query("q")),
+		View:   currentView(c),
+		Window: c.DefaultQuery("window", "all"),
+		Mine:   c.Query("mine"),
+	}
+	switch lq.Sort {
+	case "top", "controversial", "new":
+	default:
+		lq.Sort = "new"
+	}
+	lq.Limit, _ = strconv.Atoi(c.DefaultQuery("limit", strconv.Itoa(defaultPageSize)))
+	if lq.Limit <= 0 || lq.Limit > maxPageSize {
+		lq.Limit = defaultPageSize
+	}
+	lq.Offset, _ = strconv.Atoi(c.DefaultQuery("offset", "0"))
+	if lq.Offset < 0 {
+		lq.Offset = 0
+	}
+	return lq
 }
 
 func ListNames(c *gin.Context) {
-	rows, err := queryNames(c, false)
+	lq := parseListQuery(c)
+	rows, hasMore, err := queryNames(c, lq, false)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 	if wantsHTML(c) {
 		c.HTML(http.StatusOK, "_name_list.html", gin.H{
-			"Names": rows,
-			"View":  currentView(c),
+			"Names":      rows,
+			"View":       lq.View,
+			"Sort":       lq.Sort,
+			"Query":      lq.Q,
+			"Offset":     lq.Offset,
+			"NextOffset": lq.Offset + len(rows),
+			"HasMore":    hasMore,
 		})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"names": rows})
+	c.JSON(http.StatusOK, gin.H{"names": rows, "has_more": hasMore})
 }
 
 func AdminListNames(c *gin.Context) {
-	rows, err := queryNames(c, true)
+	lq := parseListQuery(c)
+	rows, hasMore, err := queryNames(c, lq, true)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"names": rows})
+	c.JSON(http.StatusOK, gin.H{"names": rows, "has_more": hasMore})
 }
 
 func SubmitName(c *gin.Context) {
@@ -126,7 +185,9 @@ func SubmitName(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid body"})
 		return
 	}
-	text := strings.TrimSpace(body.Text)
+	// Collapse internal whitespace too, so "Justin  Case" and "Justin Case"
+	// are the same submission.
+	text := strings.Join(strings.Fields(body.Text), " ")
 	if len(text) < minNameLength || len(text) > maxNameLength {
 		respondError(c, http.StatusBadRequest, "name must be 1–80 characters")
 		return
@@ -142,10 +203,10 @@ func SubmitName(c *gin.Context) {
 
 	// Pre-check for an existing (case-insensitive) name so we return a friendly
 	// message; the unique index on lower(text) is the authoritative guard.
-	var existing models.Name
-	if err := database.DB.
+	var dupes int64
+	if err := database.DB.Model(&models.Name{}).
 		Where("lower(text) = lower(?)", text).
-		First(&existing).Error; err == nil {
+		Count(&dupes).Error; err == nil && dupes > 0 {
 		respondError(c, http.StatusConflict, "that name has already been submitted")
 		return
 	}
@@ -166,13 +227,14 @@ func SubmitName(c *gin.Context) {
 		return
 	}
 
+	BroadcastChange()
 	if wantsHTML(c) {
-		c.Header("HX-Trigger", "names:refresh")
+		// names:refresh reloads the list; names:submitted lets the page show
+		// a confirmation toast with the accepted text.
+		c.Header("HX-Trigger", `{"names:refresh":null,"names:submitted":{"text":`+strconv.Quote(text)+`}}`)
 		c.String(http.StatusOK, "")
-		BroadcastChange()
 		return
 	}
-	BroadcastChange()
 	c.JSON(http.StatusCreated, gin.H{"id": name.ID})
 }
 
@@ -203,7 +265,7 @@ func Vote(c *gin.Context) {
 		return
 	}
 	if n.Status != models.NameStatusActive && n.Status != models.NameStatusOffensive {
-		c.JSON(http.StatusGone, gin.H{"error": "name removed"})
+		c.JSON(http.StatusGone, gin.H{"error": "this name has been removed"})
 		return
 	}
 
@@ -218,24 +280,19 @@ func Vote(c *gin.Context) {
 			return
 		}
 	} else {
-		// Upsert via find+update or create.
-		var existing models.Vote
-		err := database.DB.Where("name_id = ? AND voter_hash = ?", n.ID, voterHash).First(&existing).Error
-		if err == nil {
-			existing.Value = int8(body.Value)
-			if err := database.DB.Save(&existing).Error; err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-				return
-			}
-		} else {
-			v := models.Vote{NameID: n.ID, VoterHash: voterHash, Value: int8(body.Value)}
-			if err := database.DB.Create(&v).Error; err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-				return
-			}
+		// Atomic upsert on the (name_id, voter_hash) unique index so two quick
+		// clicks can't race into a duplicate-key error.
+		v := models.Vote{NameID: n.ID, VoterHash: voterHash, Value: int8(body.Value)}
+		if err := database.DB.Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "name_id"}, {Name: "voter_hash"}},
+			DoUpdates: clause.AssignmentColumns([]string{"value", "updated_at"}),
+		}).Create(&v).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
 		}
 	}
 
+	BroadcastChange()
 	if wantsHTML(c) {
 		row, err := queryOneName(c, n.ID)
 		if err != nil {
@@ -243,10 +300,8 @@ func Vote(c *gin.Context) {
 			return
 		}
 		c.HTML(http.StatusOK, "_name_row.html", gin.H{"N": row, "View": currentView(c)})
-		BroadcastChange()
 		return
 	}
-	BroadcastChange()
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
@@ -295,6 +350,7 @@ func Flag(c *gin.Context) {
 		return
 	}
 
+	BroadcastChange()
 	if wantsHTML(c) {
 		// If the name is still active, return the updated row (now MyFlag=true,
 		// so the flag button disappears). If it has been moved to pending_review,
@@ -302,14 +358,11 @@ func Flag(c *gin.Context) {
 		row, qerr := queryOneName(c, uint(id))
 		if qerr == nil && row.Status == string(models.NameStatusActive) {
 			c.HTML(http.StatusOK, "_name_row.html", gin.H{"N": row, "View": currentView(c)})
-			BroadcastChange()
 			return
 		}
 		c.String(http.StatusOK, "")
-		BroadcastChange()
 		return
 	}
-	BroadcastChange()
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
@@ -319,9 +372,14 @@ func DeleteName(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "bad id"})
 		return
 	}
-	if err := database.DB.Model(&models.Name{}).Where("id = ?", id).
-		Update("status", models.NameStatusRemoved).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	res := database.DB.Model(&models.Name{}).Where("id = ?", id).
+		Update("status", models.NameStatusRemoved)
+	if res.Error != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": res.Error.Error()})
+		return
+	}
+	if res.RowsAffected == 0 {
+		c.JSON(http.StatusNotFound, gin.H{"error": "name not found"})
 		return
 	}
 	BroadcastChange()
@@ -345,160 +403,142 @@ func respondError(c *gin.Context, status int, msg string) {
 	c.JSON(status, gin.H{"error": msg})
 }
 
-func queryNames(c *gin.Context, adminAllStatuses bool) ([]NameRow, error) {
-	sort := c.DefaultQuery("sort", "top")
-	q := strings.TrimSpace(c.Query("q"))
-	view := currentView(c)
-	window := c.DefaultQuery("window", "all")
-	mine := c.Query("mine")
+// nameProjection is the shared SELECT that aggregates votes per name for the
+// current voter. queryNames wraps it in a subquery so ORDER BY can refer to
+// the aggregate aliases (Postgres only allows bare output-column names in
+// ORDER BY, not expressions over them).
+const nameProjection = `
+SELECT n.id, n.text, n.status, n.created_at,
+       COALESCE(SUM(CASE WHEN v.value =  1 THEN 1 ELSE 0 END), 0) AS up_count,
+       COALESCE(SUM(CASE WHEN v.value = -1 THEN 1 ELSE 0 END), 0) AS down_count,
+       COALESCE(SUM(v.value), 0) AS score,
+       COALESCE(MAX(CASE WHEN v.voter_hash = ? THEN v.value END), 0) AS my_vote,
+       EXISTS (SELECT 1 FROM name_flags f WHERE f.name_id = n.id AND f.voter_hash = ?) AS my_flag,
+       (n.submitter_hash <> '' AND n.submitter_hash = ?) AS mine
+FROM names n
+`
+
+type scanRow struct {
+	ID        uint
+	Text      string
+	Status    string
+	CreatedAt time.Time `gorm:"column:created_at"`
+	UpCount   int       `gorm:"column:up_count"`
+	DownCount int       `gorm:"column:down_count"`
+	Score     int
+	MyVote    int  `gorm:"column:my_vote"`
+	MyFlag    bool `gorm:"column:my_flag"`
+	Mine      bool
+}
+
+func (r scanRow) toNameRow() NameRow {
+	return NameRow{
+		ID: r.ID, Text: r.Text, Status: r.Status,
+		Up: r.UpCount, Down: r.DownCount, Score: r.Score,
+		MyVote: r.MyVote, MyFlag: r.MyFlag, Mine: r.Mine,
+		CreatedAt: r.CreatedAt,
+	}
+}
+
+// voteJoin returns the LEFT JOIN on votes, restricted to the timeframe window
+// for sort=top/controversial so the score reflects activity within that
+// period. For sort=new votes stay all-time (the window applies to name
+// creation instead).
+func voteJoin(sort, window string) (string, []any) {
+	cutoff, hasWindow := windowCutoff(window)
+	if hasWindow && sort != "new" {
+		return "LEFT JOIN votes v ON v.name_id = n.id AND v.created_at >= ?", []any{cutoff}
+	}
+	return "LEFT JOIN votes v ON v.name_id = n.id", nil
+}
+
+// queryNames returns one page of names plus whether another page exists.
+func queryNames(c *gin.Context, lq listQuery, adminAllStatuses bool) ([]NameRow, bool, error) {
 	voterHash := middlewares.VoterHash(c)
 
-	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "100"))
-	if limit <= 0 || limit > 500 {
-		limit = 100
-	}
-	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
-	if offset < 0 {
-		offset = 0
-	}
-
 	orderBy := ""
-	switch sort {
-	case "top": 
-		orderBy = "score DESC, n.created_at DESC"
+	switch lq.Sort {
+	case "top":
+		orderBy = "score DESC, created_at DESC"
 	case "controversial":
-		orderBy = "(LEAST(up_count, down_count)::float * LN(up_count + down_count + 1)) DESC, n.created_at DESC"
+		orderBy = "(LEAST(up_count, down_count)::float * LN(up_count + down_count + 1)) DESC, created_at DESC"
 	default: // new
-		sort = "new"
-		orderBy = "n.created_at DESC"
+		orderBy = "created_at DESC"
 	}
 
 	statusWhere := "n.status = 'active'"
 	switch {
 	case adminAllStatuses:
 		statusWhere = "TRUE"
-	case view == "offensive":
+	case lq.View == "offensive":
 		statusWhere = "n.status = 'offensive'"
 	}
 
-	// Build the LEFT JOIN. For sort=top/controversial we restrict vote rows to
-	// the chosen window so the score reflects activity within that period. For
-	// sort=new we keep votes all-time (the window applies to name creation).
-	cutoff, hasWindow := windowCutoff(window)
-	joinClause := "LEFT JOIN votes v ON v.name_id = n.id"
-	args := []any{voterHash, voterHash} // my_vote, my_flag
-	if hasWindow && sort != "new" {
-		joinClause = "LEFT JOIN votes v ON v.name_id = n.id AND v.created_at >= ?"
-		args = append(args, cutoff)
-	}
+	args := []any{voterHash, voterHash, voterHash} // my_vote, my_flag, mine
+	joinClause, joinArgs := voteJoin(lq.Sort, lq.Window)
+	args = append(args, joinArgs...)
 
 	whereExtra := ""
-	if q != "" {
-		whereExtra += " AND n.text ILIKE ?"
-		args = append(args, "%"+q+"%")
+	if lq.Q != "" {
+		whereExtra += ` AND n.text ILIKE ? ESCAPE '\'`
+		args = append(args, "%"+escapeLike(lq.Q)+"%")
 	}
-	if hasWindow && sort == "new" {
+	if cutoff, hasWindow := windowCutoff(lq.Window); hasWindow && lq.Sort == "new" {
 		whereExtra += " AND n.created_at >= ?"
 		args = append(args, cutoff)
 	}
-	if mine == "unvoted" && voterHash != "" {
+	if lq.Mine == "unvoted" && voterHash != "" {
 		whereExtra += " AND NOT EXISTS (SELECT 1 FROM votes uv WHERE uv.name_id = n.id AND uv.voter_hash = ?)"
 		args = append(args, voterHash)
 	}
 
-	args = append(args, limit, offset)
+	// Fetch one extra row to learn whether a further page exists.
+	args = append(args, lq.Limit+1, lq.Offset)
 
-	sql := `
-SELECT n.id, n.text, n.status, n.created_at,
-       COALESCE(SUM(CASE WHEN v.value =  1 THEN 1 ELSE 0 END), 0) AS up_count,
-       COALESCE(SUM(CASE WHEN v.value = -1 THEN 1 ELSE 0 END), 0) AS down_count,
-       COALESCE(SUM(v.value), 0) AS score,
-       COALESCE(MAX(CASE WHEN v.voter_hash = ? THEN v.value END), 0) AS my_vote,
-       EXISTS (SELECT 1 FROM name_flags f WHERE f.name_id = n.id AND f.voter_hash = ?) AS my_flag
-FROM names n
-` + joinClause + `
+	sql := `SELECT * FROM (` + nameProjection + joinClause + `
 WHERE ` + statusWhere + whereExtra + `
-GROUP BY n.id
+GROUP BY n.id) s
 ORDER BY ` + orderBy + `
 LIMIT ? OFFSET ?`
 
-	type scanRow struct {
-		ID        uint
-		Text      string
-		Status    string
-		CreatedAt time.Time `gorm:"column:created_at"`
-		UpCount   int       `gorm:"column:up_count"`
-		DownCount int       `gorm:"column:down_count"`
-		Score     int
-		MyVote    int  `gorm:"column:my_vote"`
-		MyFlag    bool `gorm:"column:my_flag"`
-	}
 	var rows []scanRow
 	if err := database.DB.Raw(sql, args...).Scan(&rows).Error; err != nil {
-		return nil, err
+		return nil, false, err
+	}
+	hasMore := len(rows) > lq.Limit
+	if hasMore {
+		rows = rows[:lq.Limit]
 	}
 	out := make([]NameRow, 0, len(rows))
-	for _, r := range rows {
-		out = append(out, NameRow{
-			ID: r.ID, Text: r.Text, Status: r.Status,
-			Up: r.UpCount, Down: r.DownCount, Score: r.Score,
-			MyVote: r.MyVote, MyFlag: r.MyFlag,
-			CreatedAt: r.CreatedAt,
-		})
+	for i, r := range rows {
+		nr := r.toNameRow()
+		if lq.Sort == "top" {
+			nr.Rank = lq.Offset + i + 1
+		}
+		out = append(out, nr)
 	}
-	return out, nil
+	return out, hasMore, nil
 }
 
 func queryOneName(c *gin.Context, id uint) (NameRow, error) {
 	voterHash := middlewares.VoterHash(c)
-	// Honour the current window for vote counts so a row refreshed after a
-	// vote click shows counts consistent with the filtered list. sort=new keeps
-	// votes all-time, matching queryNames.
-	window := c.DefaultQuery("window", "all")
-	sort := c.DefaultQuery("sort", "top")
-	cutoff, hasWindow := windowCutoff(window)
-
-	joinClause := "LEFT JOIN votes v ON v.name_id = n.id"
-	args := []any{voterHash, voterHash}
-	if hasWindow && sort != "new" {
-		joinClause = "LEFT JOIN votes v ON v.name_id = n.id AND v.created_at >= ?"
-		args = append(args, cutoff)
-	}
+	// Honour the current sort/window for vote counts so a row refreshed after
+	// a vote click shows counts consistent with the filtered list.
+	lq := parseListQuery(c)
+	args := []any{voterHash, voterHash, voterHash}
+	joinClause, joinArgs := voteJoin(lq.Sort, lq.Window)
+	args = append(args, joinArgs...)
 	args = append(args, id)
 
-	sql := `
-SELECT n.id, n.text, n.status, n.created_at,
-       COALESCE(SUM(CASE WHEN v.value =  1 THEN 1 ELSE 0 END), 0) AS up_count,
-       COALESCE(SUM(CASE WHEN v.value = -1 THEN 1 ELSE 0 END), 0) AS down_count,
-       COALESCE(SUM(v.value), 0) AS score,
-       COALESCE(MAX(CASE WHEN v.voter_hash = ? THEN v.value END), 0) AS my_vote,
-       EXISTS (SELECT 1 FROM name_flags f WHERE f.name_id = n.id AND f.voter_hash = ?) AS my_flag
-FROM names n
-` + joinClause + `
+	sql := nameProjection + joinClause + `
 WHERE n.id = ?
 GROUP BY n.id`
 
-	type scanRow struct {
-		ID        uint
-		Text      string
-		Status    string
-		CreatedAt time.Time `gorm:"column:created_at"`
-		UpCount   int       `gorm:"column:up_count"`
-		DownCount int       `gorm:"column:down_count"`
-		Score     int
-		MyVote    int  `gorm:"column:my_vote"`
-		MyFlag    bool `gorm:"column:my_flag"`
-	}
 	var r scanRow
 	if err := database.DB.Raw(sql, args...).Scan(&r).Error; err != nil {
 		return NameRow{}, err
 	}
-	return NameRow{
-		ID: r.ID, Text: r.Text, Status: r.Status,
-		Up: r.UpCount, Down: r.DownCount, Score: r.Score,
-		MyVote: r.MyVote, MyFlag: r.MyFlag,
-		CreatedAt: r.CreatedAt,
-	}, nil
+	return r.toNameRow(), nil
 }
 
 // currentView returns "offensive" only when the request explicitly opts in;

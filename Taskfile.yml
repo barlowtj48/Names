@@ -1,6 +1,12 @@
 version: "3"
 
 tasks:
+  test:
+    desc: Run go vet and the unit tests
+    cmds:
+      - go vet ./...
+      - go test ./...
+
   up:local:backend:
     desc: Build and run local docker-compose stack
     cmds:

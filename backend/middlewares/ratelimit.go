@@ -1,7 +1,9 @@
 package middlewares
 
 import (
+	"fmt"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -64,9 +66,17 @@ func (l *Limiter) Middleware() gin.HandlerFunc {
 		if key == "" {
 			key = c.ClientIP()
 		}
-		if !l.get(key).Allow() {
+		res := l.get(key).Reserve()
+		if !res.OK() || res.Delay() > 0 {
+			wait := res.Delay()
+			res.Cancel()
+			secs := int(wait.Seconds() + 0.999)
+			if secs < 1 {
+				secs = 1
+			}
+			c.Header("Retry-After", strconv.Itoa(secs))
 			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
-				"error": "rate limit exceeded, slow down",
+				"error": fmt.Sprintf("slow down — try again in %ds", secs),
 			})
 			return
 		}

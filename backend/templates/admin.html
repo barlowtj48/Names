@@ -3,6 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
     <title>Names That Mean Something Else — Admin</title>
     <link rel="icon" href="/favicon.ico?v={{.staticVersion}}" />
     <link rel="stylesheet" href="/static/styles.css?v={{.staticVersion}}" />
@@ -32,14 +33,15 @@
             required
           />
           <button type="submit">Log in</button>
-          <span id="login-error" class="error"></span>
+          <span id="login-error" class="error" role="alert"></span>
         </form>
       </section>
 
-      <section id="admin-section" style="display: none">
-        <div class="controls">
+      <section id="admin-section" hidden>
+        <div class="admin-toolbar">
           <button id="logout-btn">Log out</button>
           <button id="reload-btn">Reload</button>
+          <span id="live-indicator" class="muted" title="Live updates">● live</span>
         </div>
 
         <h2>Review queue <span id="queue-count" class="muted"></span></h2>
@@ -49,37 +51,65 @@
           public list, visible behind the disclosure). Remove deletes it
           outright.
         </p>
-        <table id="queue-table">
-          <thead>
-            <tr>
-              <th>ID</th>
-              <th>Text</th>
-              <th>Flags</th>
-              <th>Last flagged</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
+        <div class="table-wrap">
+          <table id="queue-table">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Text</th>
+                <th>Flags</th>
+                <th>Last flagged</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
 
-        <h2>All names</h2>
-        <table id="names-table">
-          <thead>
-            <tr>
-              <th>ID</th>
-              <th>Text</th>
-              <th>Status</th>
-              <th>👍</th>
-              <th>👎</th>
-              <th>Score</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
+        <h2>All names <span id="names-count" class="muted"></span></h2>
+        <div class="admin-toolbar">
+          <input
+            type="search"
+            id="names-filter"
+            placeholder="Filter by text…"
+            autocomplete="off"
+            aria-label="Filter names"
+          />
+          <select id="status-filter" aria-label="Filter by status">
+            <option value="">All statuses</option>
+            <option value="active">Active</option>
+            <option value="pending_review">Pending review</option>
+            <option value="offensive">Offensive</option>
+            <option value="removed">Removed</option>
+          </select>
+          <select id="sort-select" aria-label="Sort">
+            <option value="new">Newest</option>
+            <option value="top">Top</option>
+            <option value="controversial">Controversial</option>
+          </select>
+        </div>
+        <div class="table-wrap">
+          <table id="names-table">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Text</th>
+                <th>Status</th>
+                <th>Submitted</th>
+                <th>👍</th>
+                <th>👎</th>
+                <th>Score</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <button id="names-more" class="load-more" hidden>Load more</button>
       </section>
     </main>
 
+    <div id="toasts" class="toasts" aria-live="assertive"></div>
     <script src="/static/admin.js?v={{.staticVersion}}"></script>
   </body>
 </html>

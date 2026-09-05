@@ -4,9 +4,21 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Names That Mean Something Else</title>
+    <meta
+      name="description"
+      content="Vote on names that sound like something else when read aloud — Justin Case, Anita Bath, and friends. Submit your own. Anonymous, one vote per person."
+    />
+    <meta property="og:title" content="Names That Mean Something Else" />
+    <meta
+      property="og:description"
+      content="Vote on names that sound like something else when read aloud. Submit your own."
+    />
+    <meta property="og:type" content="website" />
+    <meta name="theme-color" content="#0f1115" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#f6f7f9" media="(prefers-color-scheme: light)" />
     <link rel="icon" href="/favicon.ico?v={{.staticVersion}}" />
     <link rel="stylesheet" href="/static/styles.css?v={{.staticVersion}}" />
-    <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+    <script src="/static/htmx.min.js?v={{.staticVersion}}"></script>
     <script defer src="/static/app.js?v={{.staticVersion}}"></script>
   </head>
   <body>
@@ -18,8 +30,8 @@
     </header>
 
     <main>
-      <section class="guidelines">
-        <h2>Guidelines</h2>
+      <details class="guidelines" id="guidelines" open>
+        <summary><h2>Guidelines</h2></summary>
         <ul>
           <li>Keep it tasteful &mdash; nothing too crude.</li>
           <li>
@@ -35,7 +47,7 @@
             on its own. Vote accordingly.
           </li>
         </ul>
-      </section>
+      </details>
 
       <section class="submit">
         <form
@@ -43,28 +55,36 @@
           hx-post="/api/names"
           hx-target="#submit-error"
           hx-swap="innerHTML"
-          hx-on::after-request="if(event.detail.successful){this.reset(); document.body.dispatchEvent(new CustomEvent('names:refresh'));}"
+          hx-disabled-elt="find button[type='submit']"
+          hx-indicator="this"
         >
-          <input
-            type="text"
-            name="text"
-            id="submit-input"
-            placeholder="Submit a name…"
-            maxlength="80"
-            required
-            autocomplete="off"
-          />
-          <button
-            type="button"
-            id="submit-preview"
-            class="speak"
-            title="Hear how it sounds"
-            aria-label="Preview pronunciation"
-          >
-            🔊
-          </button>
-          <button type="submit">Submit</button>
-          <span id="submit-error" class="error"></span>
+          <div class="row">
+            <input
+              type="text"
+              name="text"
+              id="submit-input"
+              placeholder="Submit a name…"
+              maxlength="80"
+              required
+              autocomplete="off"
+              autocapitalize="words"
+              enterkeyhint="send"
+              aria-describedby="submit-error"
+            />
+            <button
+              type="button"
+              id="submit-preview"
+              class="speak"
+              title="Hear how it sounds"
+              aria-label="Preview pronunciation"
+            >
+              🔊
+            </button>
+            <button type="submit">
+              <span class="label">Submit</span><span class="spinner" aria-hidden="true"></span>
+            </button>
+          </div>
+          <span id="submit-error" class="error" role="alert"></span>
         </form>
       </section>
 
@@ -74,7 +94,8 @@
           hx-get="/api/names"
           hx-target="#names-list"
           hx-swap="innerHTML"
-          hx-trigger="change, keyup delay:300ms from:input[name='q'], names:refresh from:body, load"
+          hx-trigger="change, input changed delay:300ms from:input[name='q'], names:refresh from:body"
+          hx-indicator="#names-list"
         >
           <input type="hidden" name="view" id="view-input" value="active" />
 
@@ -91,7 +112,7 @@
               ></label
             >
             <label
-              ><input type="radio" name="sort" value="new" checked/><span
+              ><input type="radio" name="sort" value="new" checked /><span
                 >New</span
               ></label
             >
@@ -130,8 +151,10 @@
             <input
               type="search"
               name="q"
-              placeholder="Search names…"
+              id="search-input"
+              placeholder="Search names…  ( / )"
               autocomplete="off"
+              aria-label="Search names"
             />
             <button
               type="button"
@@ -147,7 +170,8 @@
         </form>
       </section>
 
-      <section id="names-list" class="names-list" aria-live="polite">
+      <p id="list-status" class="muted list-status" aria-live="polite"></p>
+      <section id="names-list" class="names-list">
         <p class="muted">Loading…</p>
       </section>
     </main>
@@ -169,5 +193,7 @@
       </details>
       <p><a href="/admin">Admin</a></p>
     </footer>
+
+    <div id="toasts" class="toasts" aria-live="assertive"></div>
   </body>
 </html>
