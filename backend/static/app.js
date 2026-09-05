@@ -240,38 +240,23 @@ document.addEventListener("htmx:beforeRequest", (evt) => {
   if (evt.target && evt.target.id === "filter-form") TTS.stop();
 });
 
-// ---------- Relative timestamps ----------
-// Converts <time data-rel datetime="..."> elements into "5m ago", "2h ago",
-// etc. Re-runs after every htmx swap so newly inserted rows get formatted.
-function formatRelative(date) {
-  const diffMs = Date.now() - date.getTime();
-  const sec = Math.round(diffMs / 1000);
-  if (sec < 45) return "just now";
-  const min = Math.round(sec / 60);
-  if (min < 60) return `${min}m ago`;
-  const hr = Math.round(min / 60);
-  if (hr < 24) return `${hr}h ago`;
-  const day = Math.round(hr / 24);
-  if (day < 7) return `${day}d ago`;
-  if (day < 30) return `${Math.round(day / 7)}w ago`;
-  if (day < 365) return `${Math.round(day / 30)}mo ago`;
-  return `${Math.round(day / 365)}y ago`;
-}
-function refreshRelativeTimes(root) {
+// ---------- Timestamps ----------
+// The server already renders the visible text as a plain date ("Sep 5,
+// 2026"). All we add client-side is a full local-time hover title, since the
+// server doesn't know the viewer's timezone. Re-runs after every htmx swap
+// so newly inserted rows get one too.
+function refreshTimeTitles(root) {
   (root || document).querySelectorAll("time[data-rel]").forEach((el) => {
     const dt = el.getAttribute("datetime");
     if (!dt) return;
     const d = new Date(dt);
     if (isNaN(d.getTime())) return;
-    el.textContent = formatRelative(d);
-    // Hover shows the exact time in the viewer's own timezone.
     el.title = d.toLocaleString();
   });
 }
 document.body.addEventListener("htmx:afterSwap", (evt) =>
-  refreshRelativeTimes(evt.target)
+  refreshTimeTitles(evt.target)
 );
-setInterval(() => refreshRelativeTimes(), 60_000);
 
 // ---------- Live updates via WebSocket ----------
 // The server pushes {"type":"names.changed"} whenever something is submitted,
@@ -344,7 +329,7 @@ const live = (function () {
 
 // ---------- Page bootstrap ----------
 document.addEventListener("DOMContentLoaded", () => {
-  refreshRelativeTimes();
+  refreshTimeTitles();
 
   // Offensive view toggle: a hidden footer disclosure flips the list into
   // "offensive" mode by mutating the hidden view input and re-triggering the
