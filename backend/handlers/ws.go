@@ -88,6 +88,18 @@ func BroadcastChange() {
 	}
 }
 
+// CloseAllClients disconnects every websocket client. Called during graceful
+// shutdown so browsers reconnect (with backoff) to the new process instead of
+// hanging on a half-open socket.
+func CloseAllClients() {
+	hub.mu.Lock()
+	defer hub.mu.Unlock()
+	for client := range hub.clients {
+		close(client.send)
+		delete(hub.clients, client)
+	}
+}
+
 func removeClient(client *wsClient) {
 	hub.mu.Lock()
 	if _, ok := hub.clients[client]; ok {

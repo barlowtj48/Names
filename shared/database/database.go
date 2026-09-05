@@ -2,6 +2,8 @@ package database
 
 import (
 	"fmt"
+	"log"
+	"os"
 	"time"
 
 	"github.com/barlowtj48/names/shared/models"
@@ -33,10 +35,16 @@ func ConnectDatabase(host, user, password, dbname, port, sslmode, timezone, env 
 	}
 
 	fmt.Println("Database connection established.")
+	// LogMode returns a new logger; it must be assigned back to take effect.
+	// Expected misses (First on a bad id → 404) are not worth a log line.
 	if env == "production" {
-		DB.Logger.LogMode(logger.Silent)
+		DB.Logger = DB.Logger.LogMode(logger.Silent)
 	} else {
-		DB.Logger.LogMode(logger.Silent)
+		DB.Logger = logger.New(log.New(os.Stdout, "", log.LstdFlags), logger.Config{
+			SlowThreshold:             200 * time.Millisecond,
+			LogLevel:                  logger.Warn,
+			IgnoreRecordNotFoundError: true,
+		})
 	}
 	return nil
 }

@@ -16,7 +16,12 @@ cp secrets/names.env.example secrets/names.env   # then edit the values
 task up:local:backend
 ```
 
-Open http://localhost:8104.
+Open http://localhost:8104. The backend runs under `air`, so Go/template/static
+edits hot-reload inside the container.
+
+```sh
+task test          # go vet + unit tests (also run inside the Docker build)
+```
 
 ## Production
 

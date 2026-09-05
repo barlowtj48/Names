@@ -1,3 +1,23 @@
 {{ range .Names }}{{ template "name_row" . }}{{ else }}
-<p class="muted">No names yet. Be the first to submit one!</p>
+{{ if .Query }}
+<p class="muted empty">No names match &ldquo;{{ .Query }}&rdquo;.</p>
+{{ else if gt .Offset 0 }}
+<p class="muted empty">That's all of them.</p>
+{{ else }}
+<p class="muted empty">No names yet. Be the first to submit one!</p>
+{{ end }}
+{{ end }}
+{{ if .HasMore }}
+<button
+  type="button"
+  class="load-more"
+  hx-get="/api/names"
+  hx-include="#filter-form"
+  hx-vals='{"offset": {{ .NextOffset }}}'
+  hx-target="this"
+  hx-swap="outerHTML"
+  hx-disabled-elt="this"
+>
+  Load more
+</button>
 {{ end }}
